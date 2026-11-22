@@ -73,9 +73,10 @@ const ARENA = (() => {
       g.lineJoin = 'round'; g.lineWidth = size * 0.16; g.strokeStyle = '#f4efe6'; g.strokeText(txt, 0, 0);
       g.fillStyle = PURPLE; g.fillText(txt, 0, 0); g.restore();
     };
-    word('MUNCIE', 25, 46.2, 46);
-    word('BEARCATS', CL - 25, 46.2, 46);
-    word('CENTRAL', MID, 3.8, 34);
+    // reads left to right along the near sideline: MUNCIE CENTRAL BEARCATS
+    word('MUNCIE', 18, 46.2, 42);
+    word('CENTRAL', MID, 46.2, 42);
+    word('BEARCATS', CL - 18, 46.2, 42);
     return { canvas: c, PPF, TX0, TX1, TZ0, TZ1 };
   }
 

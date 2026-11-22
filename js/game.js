@@ -209,7 +209,7 @@
     else prob = 0.42 + p.r.sht * 0.025 - Math.max(0, d - 8) * 0.011;
     if (!layup) {
       const a = Math.abs(p.vy);
-      const timing = forceTiming || (a <= 4 ? 'perfect' : a <= 9 ? 'ok' : 'bad');
+      const timing = forceTiming || (a <= 6.5 ? 'perfect' : a <= 12 ? 'ok' : 'bad');
       prob += timing === 'perfect' ? 0.09 : timing === 'bad' ? -0.15 : 0;
     }
     let contest = 0;
@@ -288,18 +288,21 @@
     if (match.clock <= 0) callout('AT THE BUZZER!', 'fire', true);
     crowdHype = pts === 3 || kind === 'dunk' ? 2.2 : 1.2;
     SFX.crowd(pts === 3 || kind === 'dunk');
-    match.phase = 'dead'; match.phaseT = 1.0; match.inboundTeam = 1 - t; match.scoredRim = attackRim(t);
+    match.phase = 'dead'; match.phaseT = 0.45; match.inboundTeam = 1 - t; match.scoredRim = attackRim(t); match.inbounder = null;
   }
-  function inbound(team) {
-    const rimX = match.scoredRim;
-    const base = rimX < MID ? 0 : CL, inward = rimX < MID ? 1 : -1;
-    const tm = players.filter(p => p.team === team);
-    const r = tm.reduce((a, b) => (Math.abs(b.x - rimX) < Math.abs(a.x - rimX) ? b : a));
-    r.x = base + inward * 1.5; r.z = 25 + rnd(-6, 6); r.state = 'run'; r.y = 0; r.vx = r.vz = 0; r.stun = 0; r.dunk = null;
-    giveBall(r); r.inboundT = 0.35;
-    ball.x = r.x; ball.z = r.z; ball.y = 3;
-    match.shot = 24;
-    match.phase = 'live';
+  // after a basket the nearest player on the other team sprints to the ball and picks it up
+  function updateInbound() {
+    if (match.phaseT > 0) return;
+    if (!match.inbounder) {
+      const tm = players.filter(p => p.team === match.inboundTeam && p.state !== 'down');
+      if (!tm.length) return;
+      match.inbounder = tm.reduce((a, b) => (d2(b, ball) < d2(a, ball) ? b : a));
+    }
+    const r = match.inbounder;
+    if (r.state === 'run' && hyp(r.x - ball.x, r.z - ball.z) < 2.2 && ball.y < 4) {
+      giveBall(r); r.inboundT = 0.15;
+      match.inbounder = null; match.shot = 24; match.phase = 'live';
+    }
   }
 
   // ---------- input ----------
@@ -352,6 +355,8 @@
   function pressStart(id, x, y) {
     SFX.unlock();
     if (screen === 'play' && !paused) {
+      const r = cv.getBoundingClientRect(), cx = (x - r.left) / r.width * W, cy = (y - r.top) / r.height * H;
+      if (cy < 36 && Math.abs(cx - W / 2) < 50) { paused = true; SFX.blip(); return; } // tap the game clock to pause
       if (x < window.innerWidth * 0.5) {
         if (stickId === null) { stickId = id; stickOrigin = [x, y]; placeStick(x, y); setKnob(0, 0); stickVec = [0, 0]; }
         return;
@@ -458,6 +463,7 @@
       return it;
     }
     if (match.phase === 'dead') {
+      if (p === match.inbounder) { moveTo(it, p, ball.x, ball.z, 0.4); it.turbo = true; return it; }
       const inb = match.inboundTeam === p.team;
       const tx = inb ? MID - match.dir[p.team] * 4 : defRim(p.team) + (defRim(p.team) < MID ? 12 : -12);
       moveTo(it, p, tx, RIM_Z + (p.slot ? 9 : -9));
@@ -592,12 +598,12 @@
     if (p.state === 'down') return;
     const moving = Math.abs(it.mx) + Math.abs(it.mz) > 0.2;
     p.usingTurbo = it.turbo && moving && (p.turbo > 0 || p.fire);
-    if (p.usingTurbo && !p.fire) p.turbo = Math.max(0, p.turbo - 30 * dt);
+    if (p.usingTurbo && !p.fire && p !== match.inbounder) p.turbo = Math.max(0, p.turbo - 30 * dt);
     else if (!it.turbo) p.turbo = Math.min(100, p.turbo + 16 * dt);
     if (p.fire) p.turbo = 100;
 
     if (onGround(p) && p.stun <= 0) {
-      const sp = speedOf(p) * (p.usingTurbo ? 1.4 : 1) * (ball.holder === p ? 0.96 : 1);
+      const sp = speedOf(p) * (p.usingTurbo ? 1.4 : 1) * (ball.holder === p ? 0.96 : 1) * (p === match.inbounder ? 1.3 : 1);
       const tx = it.mx * sp, tz = it.mz * sp * 0.85;
       const k = Math.min(1, dt * 18);
       p.vx += (tx - p.vx) * k; p.vz += (tz - p.vz) * k;
@@ -615,7 +621,7 @@
         else if (it.shootPress) startShot(p, it.turbo);
       }
       // hold SHOOT to rise; the ball goes when you let go (best at the top of the jump)
-      if (p.state === 'shoot' && (it.shootRelease || p.vy < -10)) releaseShot(p);
+      if (p.state === 'shoot' && (it.shootRelease || p.vy < -13)) releaseShot(p);
     } else if (holder && holder.team === p.team) {
       if (p.human) {
         if (it.passPress) holder.ai.wantPass = true;
@@ -682,7 +688,7 @@
       return;
     }
     p.state = 'hang'; p.t = 0; p.vx = p.vz = 0;
-    ball.holder = null; ball.state = 'dead'; ball.x = rimX; ball.z = RIM_Z; ball.y = 9.6; ball.vx = ball.vz = 0; ball.vy = -16;
+    ball.holder = null; ball.state = 'dead'; ball.x = rimX; ball.z = RIM_Z; ball.y = 9.6; ball.vx = (rimX < MID ? 1 : -1) * 1.5; ball.vz = 0; ball.vy = -16;
     netShake[rimX < MID ? 0 : 1] = 0.5;
     shake = 0.35;
     SFX.dunk();
@@ -751,7 +757,7 @@
       }
       if (s.t >= s.T) {
         if (s.made) {
-          b.x = s.rimX; b.z = RIM_Z; b.y = 9.7; b.vx = b.vz = 0; b.vy = -7; b.state = 'dead';
+          b.x = s.rimX; b.z = RIM_Z; b.y = 9.7; b.vx = (s.rimX < MID ? 1 : -1) * 1.5; b.vz = 0; b.vy = -7; b.state = 'dead';
           netShake[s.rimX < MID ? 0 : 1] = 0.45;
           SFX.swish();
           if (s.shooter.fire) burst(s.rimX, 10, RIM_Z, 16, ['#ff4a1c', '#ffb02e', '#fff1a0'], 8);
@@ -795,7 +801,7 @@
     }
     const px = b.x;
     b.x += b.vx * dt; b.z += b.vz * dt; b.vy -= BGRAV * dt; b.y += b.vy * dt;
-    if (b.state === 'dead') { b.vx *= 0.9; b.vz *= 0.9; }
+    if (b.state === 'dead') { b.vx *= 0.98; b.vz *= 0.98; }
     for (let i = 0; i < 2; i++) {
       const bx = BOARD_X[i];
       if ((px - bx) * (b.x - bx) < 0 && b.y > 9 && b.y < 13.5 && Math.abs(b.z - RIM_Z) < 3) { b.x = bx + (i === 0 ? 0.05 : -0.05); b.vx *= -0.55; SFX.board(); }
@@ -847,7 +853,7 @@
     if (screen !== 'play' || paused) return;
 
     const hIt = readInput();
-    for (const p of players) applyIntent(p, p.human ? hIt : aiIntent(p, dt), dt);
+    for (const p of players) applyIntent(p, p.human && p !== match.inbounder ? hIt : aiIntent(p, dt), dt);
     for (const p of players) updatePlayer(p, dt);
     separate();
     for (const p of players) p.pose = PUP.blend(p.pose, poseFor(p), p.state === 'run' && hyp(p.vx, p.vz) > 2 ? 0.5 : 0.3);
@@ -874,7 +880,7 @@
     } else if (match.phase === 'dead') {
       match.phaseT -= dt;
       if (match.clock <= 0 && match.buzzer) { match.phase = 'over'; match.phaseT = 1.4; }
-      else if (match.phaseT <= 0) inbound(match.inboundTeam);
+      else updateInbound();
     } else if (match.phase === 'over') {
       match.phaseT -= dt;
       if (match.phaseT <= 0) endQuarter();
@@ -1303,8 +1309,8 @@
     TXT.draw(ctx, 'PAUSED', W / 2, 40, { size: 40, align: 'center', fill: 'gold' });
     button(W / 2 - 80, 98, 160, 28, 'RESUME', () => { paused = false; }, { color: '#d8342c', size: 14 });
     button(W / 2 - 80, 134, 160, 28, SFX.isMuted() ? 'SOUND: OFF' : 'SOUND: ON', () => SFX.setMuted(!SFX.isMuted()), { color: '#333', size: 14 });
-    button(W / 2 - 80, 170, 160, 28, 'QUIT GAME', () => { paused = false; screen = 'title'; elControls.classList.remove('on'); elPause.classList.remove('on'); }, { color: '#5b2d8e', size: 14 });
-    const lines = ['LEFT THUMB: MOVE.  RIGHT THUMB: SHOOT, PASS, TURBO.', 'HOLD TURBO AND HIT SHOOT NEAR THE RIM TO DUNK.', 'DEFENSE: STEAL, JUMP TO BLOCK, TURBO + STEAL TO SHOVE.', 'LET GO OF SHOOT AT THE TOP OF YOUR JUMP FOR A BONUS.'];
+    button(W / 2 - 80, 170, 160, 28, 'EXIT TO TITLE', () => { paused = false; screen = 'title'; elControls.classList.remove('on'); elPause.classList.remove('on'); }, { color: '#5b2d8e', size: 14 });
+    const lines = ['LEFT THUMB: MOVE.  RIGHT THUMB: SHOOT, PASS, TURBO.', 'HOLD TURBO AND HIT SHOOT NEAR THE RIM TO DUNK.', 'DEFENSE: STEAL, JUMP TO BLOCK, TURBO + STEAL TO SHOVE.', 'HOLD SHOOT TO JUMP. LET GO AT THE TOP OF YOUR JUMP.'];
     lines.forEach((l, i) => TXT.draw(ctx, l, W / 2, 212 + i * 15, { size: 10, align: 'center', fill: 'white', shadow: false, strokeW: 2 }));
   }
 
@@ -1317,6 +1323,7 @@
     if (screen === 'qend') return renderQEnd();
     if (screen === 'final') return renderFinal();
     elControls.classList.toggle('on', !paused);
+    const pl = paused ? 'RESUME' : 'II PAUSE'; if (elPause.textContent !== pl) elPause.textContent = pl;
     drawWorld();
     drawHUD();
     drawCallouts();

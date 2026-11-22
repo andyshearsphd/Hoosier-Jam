@@ -33,9 +33,10 @@
     background: rgba(255,255,255,0.10); border: 3px solid rgba(255,255,255,0.35); box-sizing: border-box; }
   #stickKnob { position: absolute; left: 50%; top: 50%; width: 54px; height: 54px; margin: -27px 0 0 -27px; border-radius: 50%;
     background: rgba(240,240,255,0.55); border: 3px solid rgba(0,0,0,0.6); box-sizing: border-box; }
-  #pauseBtn { position: absolute; bottom: calc(6px + env(safe-area-inset-bottom)); left: 50%; margin-left: -20px; width: 40px; height: 26px;
-    display: none; border: 2px solid rgba(255,255,255,0.6); border-radius: 6px; background: rgba(0,0,0,0.45); color: #fff;
-    font: 900 12px/16px "Arial Black", system-ui, sans-serif; text-align: center; padding: 0; z-index: 5; }
+  #pauseBtn { position: absolute; bottom: calc(8px + env(safe-area-inset-bottom)); left: 50%; margin-left: -48px; width: 96px; height: 38px;
+    display: none; border: 3px solid rgba(0,0,0,0.75); border-radius: 19px; background: linear-gradient(#8a5ad0, #5b2d8e 55%, #2a1240); color: #fff;
+    font: 400 17px/32px Anton, Impact, sans-serif; font-style: italic; letter-spacing: 1px; text-shadow: 2px 2px 0 #000; text-align: center; padding: 0; z-index: 5; opacity: 0.85;
+    -webkit-tap-highlight-color: transparent; touch-action: none; }
   #pauseBtn.on { display: block; }
   #rotate { position: absolute; inset: 0; background: #1b0d33; color: #fff; display: none; z-index: 20;
     flex-direction: column; align-items: center; justify-content: center; text-align: center;
@@ -53,7 +54,7 @@
   <div class="btn" id="bPass">PASS</div>
   <div class="btn" id="bShoot">SHOOT</div>
 </div>
-<button id="pauseBtn" aria-label="Pause">II</button>
+<button id="pauseBtn" aria-label="Pause">II PAUSE</button>
 <div id="rotate"><div class="phone"></div>TURN YOUR PHONE SIDEWAYS<br><span style="font-size:14px;color:#f7c531">HOOSIER JAM PLAYS IN LANDSCAPE</span></div>
 <script src="js/text.js"></script>
 <script src="js/puppet.js"></script>

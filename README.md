@@ -26,6 +26,7 @@ Safari won't hide its address bar on a regular web page, so use the home screen 
 - Hold **TURBO** and press **SHOOT** near the rim to dunk. You can slide your thumb from TURBO onto SHOOT.
 - When your CPU teammate has the ball, PASS calls for it and SHOOT tells him to shoot.
 - A quick tap on SHOOT lets the ball go early, which usually misses. Hold it, then let go at the top.
+- Pause with the **PAUSE** button at the bottom or by tapping the game clock. The pause menu has Resume, Sound and Exit to Title.
 - Hit three in a row and you're **red hot**.
 - Box scores (points, rebounds, assists, steals, blocks, field goals, threes) and score by quarter after every quarter, at halftime and at the final.
 
