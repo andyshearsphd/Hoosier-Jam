@@ -41,12 +41,16 @@
   let time = 0;
   const match = {
     human: 0, q: 1, clock: QTR_LEN, shot: 24, score: [0, 0], dir: [1, -1], phase: 'tip', phaseT: 0,
-    picks: [[0, 1], [0, 1]], tipWinner: 0, stats: [[0, 0, 0], [0, 0, 0]], buzzer: false, pickMode: 'pre', kinds: {}
+    picks: [[0, 1], [0, 1]], tipWinner: 0, stats: null, qs: [[], []], buzzer: false, pickMode: 'pre', kinds: {}
   };
   let players = [];
   const ball = { x: MID, y: 3, z: 25, vx: 0, vy: 0, vz: 0, state: 'loose', holder: null, lastTeam: 0, shot: null, pass: null, dribPhase: 0 };
   let callouts = [], particles = [], crowdHype = 0, netShake = [0, 0];
   let pickSel = [];
+  const newStats = () => ({ pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, fgm: 0, fga: 0, tpm: 0, tpa: 0 });
+  const resetStats = () => { match.stats = [0, 1].map(() => [0, 1, 2].map(newStats)); match.qs = [[], []]; };
+  resetStats();
+  const st = p => match.stats[p.team][p.ri];
 
   // ---------- players ----------
   function makePlayer(team, slot, ri, human) {
@@ -90,7 +94,7 @@
   }
 
   // ---------- possession ----------
-  function giveBall(p) { ball.holder = p; ball.state = 'held'; ball.shot = null; ball.pass = null; ball.lastTeam = p.team; p.noGrab = 0; }
+  function giveBall(p) { ball.holder = p; ball.state = 'held'; ball.shot = null; ball.pass = null; ball.lastTeam = p.team; p.noGrab = 0; p.astFrom = null; }
   function setupPossession(team) {
     const dirO = match.dir[team];
     const off = players.filter(p => p.team === team), def = players.filter(p => p.team !== team);
@@ -106,7 +110,7 @@
     camX = off[0].x + dirO * 10;
   }
   function startGame() {
-    match.q = 1; match.score = [0, 0]; match.stats = [[0, 0, 0], [0, 0, 0]]; match.kinds = {};
+    match.q = 1; match.score = [0, 0]; resetStats(); match.kinds = {};
     match.dir = [1, -1]; match.buzzer = false;
     setupPlayers();
     callouts = []; particles = [];
@@ -184,7 +188,7 @@
       if (d2(o, p) < 4.5 && hyp(o.x - rimX, o.z - RIM_Z) < d + 1) { contest = o; break; }
     }
     const ex = rimX - dirT * 1.1, ez = RIM_Z + (p.z > RIM_Z ? 0.6 : -0.6);
-    p.state = 'dunk'; p.t = 0;
+    p.state = 'dunk'; p.t = 0; st(p).fga++;
     p.dunk = { sx: p.x, sz: p.z, ex, ez, T: 0.38 + d * 0.035, arc: 3 + d * 0.3, endY: Math.max(1, 10.9 - (p.h * 1.33 + 0.4)), spin: d > 9 && Math.random() < 0.5, contest };
     p.face = Math.sign(rimX - p.x) || p.face;
     if (!p.fire) p.turbo = Math.max(0, p.turbo - 10);
@@ -225,21 +229,22 @@
     ball.x = bx; ball.y = by; ball.z = bz;
     ball.vx = (tx - bx) / T; ball.vz = (tz - bz) / T; ball.vy = (ty - by + 0.5 * BGRAV * T * T) / T;
     ball.shot = { made, T, t: 0, three, shooter: p, rimX, team: p.team, d, checked: new Set(), layup };
+    st(p).fga++; if (three) st(p).tpa++;
     ball.lastTeam = p.team;
     p.noGrab = 0.35;
   }
 
   function trySteal(p) {
     if (p.stealCd > 0) return;
-    p.stealCd = 0.45; p.stealT = 0.22;
+    p.stealCd = p.human ? 0.45 : 1.6; p.stealT = 0.22;
     const h = ball.holder;
     if (!h || h.team === p.team || ball.state !== 'held') return;
     if (d2(p, h) > 4 || h.state !== 'run' || h.inboundT > 0) return;
-    let chance = 0.1 + p.r.stl * 0.03;
+    let chance = 0.04 + p.r.stl * 0.02;
     if (p.human) chance += 0.12;
     if (h.human) chance *= 0.6;
     if (Math.random() < chance) {
-      giveBall(p); h.stun = 0.3; match.shot = 24;
+      giveBall(p); h.stun = 0.3; match.shot = 24; st(p).stl++;
       callout(pick(['STOLEN!', 'PICKED CLEAN!', 'PICKPOCKET!']), 'ice');
       SFX.steal();
     }
@@ -268,7 +273,10 @@
   function score(p, pts, kind) {
     const t = p.team;
     match.score[t] += pts;
-    match.stats[t][p.ri] += pts;
+    const S_ = st(p); S_.pts += pts; S_.fgm++; if (pts === 3) S_.tpm++;
+    match.qs[t][match.q - 1] = (match.qs[t][match.q - 1] || 0) + pts;
+    if (p.astFrom && p.astFrom.team === t && p.astFrom !== p && time - p.astT < 5) st(p.astFrom).ast++;
+    p.astFrom = null;
     const kk = kind + pts; match.kinds[kk] = (match.kinds[kk] || 0) + 1;
     p.streak++; p.celebT = 1.1;
     for (const o of players) if (o.team !== t) { o.streak = 0; o.fire = false; }
@@ -534,7 +542,7 @@
         const dd = d2(p, man);
         if (deciding && dd < 3.8 && man.state === 'run') {
           if (p.turbo > 30 && Math.random() < (cpuD ? 0.012 : 0.03)) { it.passPress = true; it.turbo = true; return it; }
-          if (Math.random() < (cpuD ? 0.03 + p.r.stl * 0.008 : 0.05 + p.r.stl * 0.013)) { it.passPress = true; return it; }
+          if (Math.random() < (cpuD ? 0.01 + p.r.stl * 0.003 : 0.014 + p.r.stl * 0.004)) { it.passPress = true; return it; }
         }
         if ((man.state === 'shoot' || man.state === 'layup') && dd < 6.5 && A.jumpAt < 0 && Math.random() < (cpuD ? 0.35 : 0.5) + p.r.blk * 0.04) A.jumpAt = rnd(cpuD ? 0.1 : 0.04, cpuD ? 0.28 : 0.18);
         if (man.state === 'dunk' && hyp(p.x - dRim, p.z - RIM_Z) < 8 && A.jumpAt < 0 && Math.random() < 0.3 + p.r.blk * 0.05) A.jumpAt = Math.max(0.01, man.dunk.T - man.t - 0.3);
@@ -606,11 +614,8 @@
         if (it.passPress) passBall(p, mateOf(p));
         else if (it.shootPress) startShot(p, it.turbo);
       }
-      if (p.state === 'shoot' && !p.queuedRelease) {
-        // a quick tap releases at the top of the jump (no perfect-timing bonus)
-        if (it.shootRelease && p.vy > 4) p.queuedRelease = true;
-        else if (it.shootRelease || p.vy < -10) releaseShot(p);
-      }
+      // hold SHOOT to rise; the ball goes when you let go (best at the top of the jump)
+      if (p.state === 'shoot' && (it.shootRelease || p.vy < -10)) releaseShot(p);
     } else if (holder && holder.team === p.team) {
       if (p.human) {
         if (it.passPress) holder.ai.wantPass = true;
@@ -633,7 +638,6 @@
       case 'air': case 'shoot': case 'layup':
         p.x += p.vx * dt; p.z += p.vz * dt; p.vy -= GRAV * dt; p.y += p.vy * dt;
         if (p.state === 'layup') { p.vx *= 1 - dt * 2; p.vz *= 1 - dt * 2; if (p.t > 0.26 && ball.holder === p) releaseShot(p); }
-        if (p.state === 'shoot' && p.queuedRelease && p.vy <= 1.5 && ball.holder === p) releaseShot(p, 'ok');
         if (p.y <= 0) {
           const wasShooting = p.state === 'shoot' || p.state === 'layup';
           p.y = 0; p.vy = 0; p.state = 'run'; p.vx *= 0.3; p.vz *= 0.3;
@@ -657,22 +661,22 @@
         if (p.t > 1.1) { p.state = 'run'; p.t = 0; p.y = 0; p.stun = 0.12; }
         break;
     }
-    p.x = clamp(p.x, -3, CL + 3); p.z = clamp(p.z, -1.5, 51.5);
+    p.x = clamp(p.x, -0.8, CL + 0.8); p.z = clamp(p.z, -1.2, 51.2);
   }
 
   function finishDunk(p) {
     const rimX = attackRim(p.team);
     let blocked = false;
     for (const o of oppsOf(p)) {
-      if (o.state === 'air' && hyp(o.x - rimX, o.z - RIM_Z) < 4 && reachOf(o) + 0.5 > 10.2 && Math.random() < 0.08 + o.r.blk * 0.035 + (o.human ? 0.12 : 0)) { blocked = o; break; }
+      if (o.state === 'air' && hyp(o.x - rimX, o.z - RIM_Z) < 4 && reachOf(o) + 0.5 > 10.2 && Math.random() < 0.05 + o.r.blk * 0.025 + (o.human ? 0.12 : 0)) { blocked = o; break; }
     }
     const ct = p.dunk.contest;
-    if (!blocked && ct && ct.state !== 'down' && Math.random() < (isCPUteam(p.team) ? 0.3 : 0.16) + ct.r.blk * 0.03) blocked = ct;
+    if (!blocked && ct && ct.state !== 'down' && Math.random() < (isCPUteam(p.team) ? 0.22 : 0.1) + ct.r.blk * 0.02) blocked = ct;
     p.dunk = null; p.spin = 0;
     if (blocked) {
       p.state = 'air'; p.vy = 0; p.vx = -match.dir[p.team] * 4; p.vz = 0; p.t = 0;
       ball.holder = null; ball.state = 'loose'; ball.vx = -match.dir[p.team] * rnd(12, 18); ball.vy = rnd(3, 8); ball.vz = rnd(-5, 5);
-      ball.lastTeam = blocked.team; p.noGrab = 0.5;
+      ball.lastTeam = blocked.team; p.noGrab = 0.5; st(blocked).blk++;
       callout(pick(['REJECTED!', 'DENIED!', 'STUFFED!', 'GET THAT OUTTA HERE!']), 'ice', true);
       SFX.block(); shake = 0.25;
       return;
@@ -698,8 +702,10 @@
     }
     if (best) {
       if (best.team !== ball.lastTeam || ball.reb) match.shot = 24;
+      const wasReb = ball.reb;
       ball.reb = false;
       giveBall(best);
+      if (wasReb) st(best).reb++;
     }
   }
 
@@ -733,9 +739,9 @@
           const hd = hyp(o.x - b.x, o.z - b.z), hand = reachOf(o) + 0.4;
           if (hd < 2.8 && Math.abs(hand - b.y) < 2) {
             s.checked.add(o);
-            if (Math.random() < 0.18 + o.r.blk * 0.05 + (o.human ? 0.15 : 0) - (isCPUteam(o.team) ? 0.05 : 0)) {
+            if (Math.random() < 0.06 + o.r.blk * 0.03 + (o.human ? 0.15 : 0) - (isCPUteam(o.team) ? 0.03 : 0)) {
               b.state = 'loose'; b.vx = (b.x - o.x >= 0 ? 1 : -1) * rnd(10, 16); b.vy = rnd(2, 7); b.vz = rnd(-6, 6);
-              b.lastTeam = o.team; s.shooter.noGrab = 0.35;
+              b.lastTeam = o.team; s.shooter.noGrab = 0.35; st(o).blk++;
               callout(pick(['REJECTED!', 'DENIED!', 'GET THAT OUTTA HERE!', 'SWAT!']), 'ice', true);
               SFX.block(); shake = 0.2;
               return;
@@ -772,13 +778,19 @@
         if (o.team === P.from.team || P.checked.has(o) || o.state === 'down') continue;
         if (hyp(o.x - b.x, o.z - b.z) < 1.7 && b.y < reachOf(o) + 0.5) {
           P.checked.add(o);
-          if (Math.random() < (isCPUteam(o.team) ? 0.12 : 0.22) + o.r.stl * 0.035) { giveBall(o); match.shot = 24; callout('INTERCEPTED!', 'ice'); SFX.steal(); return; }
+          if (Math.random() < (isCPUteam(o.team) ? 0.02 : o.human ? 0.12 : 0.04) + o.r.stl * 0.012) { giveBall(o); st(o).stl++; match.shot = 24; callout('INTERCEPTED!', 'ice'); SFX.steal(); return; }
         }
       }
       const to = P.to;
-      if (to.state !== 'down' && hyp(to.x - b.x, to.z - b.z) < 2.4 && b.y < reachOf(to) + 0.8) { giveBall(to); return; }
-      if (P.t > P.T + 0.3) b.state = 'loose';
-      if (b.y < 0.45) { b.y = 0.45; b.vy = Math.abs(b.vy) * 0.5; b.state = 'loose'; }
+      if (to.state !== 'down') {
+        // steer toward the receiver's hands
+        const rem = Math.max(0.05, P.T - P.t);
+        const hx = to.x + to.face * 0.6, hz = to.z, hy = to.y + to.h * 0.75;
+        b.vx = (hx - b.x) / rem; b.vz = (hz - b.z) / rem; b.vy = (hy - b.y) / rem + 0.5 * BGRAV * rem;
+        if (hyp(to.x - b.x, to.z - b.z) < 2.4 && Math.abs(b.y - hy) < 3) { giveBall(to); to.astFrom = P.from; to.astT = time; return; }
+        if (P.t > P.T + 0.6) { giveBall(to); to.astFrom = P.from; to.astT = time; return; }
+      } else if (P.t > P.T + 0.3) b.state = 'loose';
+      if (b.y < 0.45) { b.y = 0.45; b.vy = Math.abs(b.vy) * 0.5; if (to.state === 'down') b.state = 'loose'; }
       return;
     }
     const px = b.x;
@@ -793,8 +805,8 @@
       if (Math.abs(b.vy) > 2) { if (Math.abs(b.vy) > 4 && Math.abs(b.x - camX) < 30) SFX.bounce(); b.vy = -b.vy * 0.62; } else b.vy = 0;
       b.vx *= 0.86; b.vz *= 0.86;
     }
-    if (b.x < -7 || b.x > CL + 7) { b.x = clamp(b.x, -7, CL + 7); b.vx *= -0.5; }
-    if (b.z < -3 || b.z > 53) { b.z = clamp(b.z, -3, 53); b.vz *= -0.5; }
+    if (b.x < -2.5 || b.x > CL + 2.5) { b.x = clamp(b.x, -2.5, CL + 2.5); b.vx *= -0.5; }
+    if (b.z < -2.5 || b.z > 52.5) { b.z = clamp(b.z, -2.5, 52.5); b.vz *= -0.5; }
     if (b.state === 'tip' && b.vy < 0 && b.y < 11.6) {
       const jumpers = players.filter(p => p.isJumper);
       const cont = jumpers.filter(p => reachOf(p) + 0.8 >= b.y);
@@ -838,6 +850,7 @@
     for (const p of players) applyIntent(p, p.human ? hIt : aiIntent(p, dt), dt);
     for (const p of players) updatePlayer(p, dt);
     separate();
+    for (const p of players) p.pose = PUP.blend(p.pose, poseFor(p), p.state === 'run' && hyp(p.vx, p.vz) > 2 ? 0.5 : 0.3);
     updateBall(dt);
     grabCheck();
     if (ball.holder && ball.holder.fire && Math.random() < 0.8) particles.push({ x: ball.x, y: ball.y, z: ball.z, vx: rnd(-1, 1), vy: rnd(2, 6), vz: 0, life: rnd(0.2, 0.45), t: 0, c: pick(['#ff4a1c', '#ffb02e', '#fff1a0']), g: -4 });
@@ -872,7 +885,7 @@
     if (match.phase === 'tip') tx = MID;
     camX += (tx - camX) * Math.min(1, dt * 5);
     const half = (W / 2) / sAt(50);
-    camX = clamp(camX, half - 6, CL - half + 6);
+    camX = clamp(camX, half - 1.5, CL - half + 1.5);
     updateButtonLabels();
   }
 
@@ -985,7 +998,7 @@
       case 'hang': return P.hang();
       case 'shoot': return ball.holder === p ? P.jump() : P.shotFollow();
       case 'layup': return P.layup();
-      case 'air': return ball.holder === p ? P.jump() : P.block();
+      case 'air': return ball.holder === p ? P.jump() : (ball.state === 'loose' ? P.rebound() : P.block());
       case 'down': return P.down();
     }
     if (p.stealT > 0) return P.steal();
@@ -996,14 +1009,14 @@
     if (p.celebT > 0 && match.phase === 'dead') return P.celebrate(time * 6);
     const h = ball.holder;
     if (h && h.team !== p.team && d2(h, p) < 10) return P.defend(time * 5);
-    return P.stand();
+    return P.stand(time + p.slot * 2);
   }
 
   function drawPlayer(p, reflect) {
     const [sx, sy, s] = proj(p.x, p.y, p.z);
     if (sx < -80 || sx > W + 80) return;
     const S = s * p.h / 6.5;
-    const pose = poseFor(p);
+    const pose = p.pose || poseFor(p);
     ctx.save();
     if (reflect) {
       const fy = proj(p.x, 0, p.z)[1];
@@ -1218,39 +1231,72 @@
     if (!half) button(8, H - 38, 60, 24, 'BACK', () => { screen = 'team'; }, { color: '#333', size: 11 });
   }
 
-  function statsBlock(y) {
+  // ---------- box score ----------
+  function lineScore(y) {
+    const nq = Math.max(4, match.q);
+    const colW = 34, tx0 = 150, x0 = W / 2 - (tx0 + (Math.max(4, nq) + 1) * colW) / 2 + 8, tx = x0 + tx0;
+    const head = ['1', '2', '3', '4'].concat(nq > 4 ? Array.from({ length: nq - 4 }, (_, i) => nq > 5 ? 'OT' + (i + 1) : 'OT') : []);
+    ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.fillRect(x0 - 8, y - 3, 150 + (head.length + 1) * colW + 16, 50);
+    head.forEach((h, i) => TXT.draw(ctx, h, tx + i * colW, y, { size: 10, align: 'center', fill: '#b8b8c8', shadow: false, strokeW: 1.5, italic: false }));
+    TXT.draw(ctx, 'T', tx + head.length * colW, y, { size: 10, align: 'center', fill: 'gold', shadow: false, strokeW: 1.5, italic: false });
     for (let t = 0; t < 2; t++) {
-      const T = TEAMS[t], x = t === 0 ? W / 2 - 180 : W / 2 + 30;
-      TXT.draw(ctx, T.full, x, y, { size: 13, fill: t === match.human ? 'gold' : 'white' });
-      T.players.forEach((pd, j) => {
-        TXT.draw(ctx, pd.name, x, y + 22 + j * 16, { size: 11, fill: '#e8e8f0', shadow: false, strokeW: 2 });
-        TXT.draw(ctx, match.stats[t][j] + ' PTS', x + 150, y + 22 + j * 16, { size: 11, align: 'right', fill: 'gold', shadow: false, strokeW: 2 });
-      });
+      const yy = y + 14 + t * 16;
+      TXT.draw(ctx, TEAMS[t].full, x0, yy, { size: 12, fill: t === match.human ? 'gold' : 'white', shadow: false, strokeW: 2 });
+      head.forEach((h, i) => { const v = match.qs[t][i]; const played = i < match.q; TXT.draw(ctx, played ? String(v || 0) : '-', tx + i * colW, yy, { size: 12, align: 'center', fill: 'white', shadow: false, strokeW: 2, italic: false }); });
+      TXT.draw(ctx, String(match.score[t]), tx + head.length * colW, yy, { size: 12, align: 'center', fill: 'gold', shadow: false, strokeW: 2, italic: false });
     }
   }
+  function boxScore(y) {
+    const sc = Math.min(1, (W - 10) / 612);
+    ctx.save(); ctx.translate(W / 2 - 300 * sc, y); ctx.scale(sc, sc);
+    const x0 = 6; y = 0;
+    const cols = [['PTS', 150], ['REB', 192], ['AST', 234], ['STL', 276], ['BLK', 318], ['FG', 372], ['FG%', 430], ['3PT', 488], ['3P%', 546]];
+    const pct = (m, a) => a ? Math.round(m / a * 100) + '%' : '-';
+    let yy = y;
+    for (let t = 0; t < 2; t++) {
+      const T = TEAMS[t];
+      ctx.fillStyle = PUP.shade(T.primary, -0.45); ctx.fillRect(x0 - 6, yy - 2, 600, 14);
+      TXT.draw(ctx, T.full, x0, yy, { size: 10, fill: 'white', shadow: false, strokeW: 1.5 });
+      cols.forEach(([h, cx]) => TXT.draw(ctx, h, x0 + cx, yy, { size: 10, align: 'center', fill: 'gold', shadow: false, strokeW: 1.5, italic: false }));
+      yy += 15;
+      const tot = newStats();
+      const active = players.filter(p => p.team === t).map(p => p.ri);
+      T.players.forEach((pd, j) => {
+        const S_ = match.stats[t][j];
+        for (const k in tot) tot[k] += S_[k];
+        const vals = [S_.pts, S_.reb, S_.ast, S_.stl, S_.blk, S_.fgm + '-' + S_.fga, pct(S_.fgm, S_.fga), S_.tpm + '-' + S_.tpa, pct(S_.tpm, S_.tpa)];
+        TXT.draw(ctx, pd.name + (active.includes(j) ? '' : ' (BENCH)'), x0 + 6, yy, { size: 10, fill: active.includes(j) ? '#f0f0f6' : '#9a9aaa', shadow: false, strokeW: 1.5, italic: false });
+        vals.forEach((v, i) => TXT.draw(ctx, String(v), x0 + cols[i][1], yy, { size: 10, align: 'center', fill: 'white', shadow: false, strokeW: 1.5, italic: false }));
+        yy += 13;
+      });
+      const tv = [tot.pts, tot.reb, tot.ast, tot.stl, tot.blk, tot.fgm + '-' + tot.fga, pct(tot.fgm, tot.fga), tot.tpm + '-' + tot.tpa, pct(tot.tpm, tot.tpa)];
+      TXT.draw(ctx, 'TEAM', x0 + 6, yy, { size: 10, fill: 'gold', shadow: false, strokeW: 1.5, italic: false });
+      tv.forEach((v, i) => TXT.draw(ctx, String(v), x0 + cols[i][1], yy, { size: 10, align: 'center', fill: 'gold', shadow: false, strokeW: 1.5, italic: false }));
+      yy += 19;
+    }
+    ctx.restore();
+  }
   function renderQEnd() {
-    drawWorld(); dim(0.75);
+    drawWorld(); dim(0.82);
     const q = match.q;
-    const title = q > 4 ? 'END OF OVERTIME' : q === 2 ? 'HALFTIME' : q >= 4 ? 'END OF REGULATION' : 'END OF ' + ['', '1ST', '2ND', '3RD'][q] + ' QUARTER';
-    TXT.draw(ctx, title, W / 2, 16, { size: 30, align: 'center', fill: 'gold' });
-    TXT.draw(ctx, TEAMS[0].name + ' ' + match.score[0] + '     ' + TEAMS[1].name + ' ' + match.score[1], W / 2, 60, { size: 26, align: 'center', fill: 'white' });
-    if (q >= 4) TXT.draw(ctx, 'TIED UP! WE ARE GOING TO OVERTIME', W / 2, 94, { size: 14, align: 'center', fill: 'fire' });
-    statsBlock(120);
-    if (Math.floor(time * 2) % 2 === 0) TXT.draw(ctx, q === 2 ? 'TAP TO MAKE HALFTIME SUBS' : 'TAP TO CONTINUE', W / 2, H - 40, { size: 20, align: 'center', fill: 'gold' });
+    const title = q > 4 ? 'END OF OVERTIME' : q === 2 ? 'HALFTIME' : q >= 4 ? 'END OF REGULATION' : 'END OF THE ' + ['', '1ST', '2ND', '3RD'][q] + ' QUARTER';
+    TXT.draw(ctx, title + (q >= 4 ? ': TIED, HEADED TO OVERTIME' : ''), W / 2, 2, { size: 20, align: 'center', fill: 'gold' });
+    lineScore(32);
+    boxScore(90);
+    if (Math.floor(time * 2) % 2 === 0) TXT.draw(ctx, q === 2 ? 'TAP TO MAKE HALFTIME SUBS' : 'TAP TO CONTINUE', W / 2, H - 22, { size: 14, align: 'center', fill: 'gold' });
     ui.push({ x: 0, y: 0, w: W, h: H, onTap: () => {
       if (q === 2) { match.pickMode = 'half'; pickSel = match.picks[match.human].slice(); screen = 'pick'; return; }
       startQuarter(); screen = 'play'; elControls.classList.add('on'); elPause.classList.add('on');
     } });
   }
   function renderFinal() {
-    drawWorld(); dim(0.75);
+    drawWorld(); dim(0.82);
     const w = match.score[0] > match.score[1] ? 0 : 1;
-    TXT.draw(ctx, 'FINAL', W / 2, 8, { size: 40, align: 'center', fill: 'gold' });
-    TXT.draw(ctx, TEAMS[0].name + ' ' + match.score[0] + '     ' + TEAMS[1].name + ' ' + match.score[1], W / 2, 58, { size: 26, align: 'center', fill: 'white' });
-    TXT.draw(ctx, TEAMS[w].full + ' WIN!', W / 2, 92, { size: 22, align: 'center', fill: w === match.human ? 'green' : 'red' });
-    statsBlock(128);
-    button(W / 2 - 160, H - 46, 150, 30, 'REMATCH', () => { pickSel = []; match.pickMode = 'pre'; screen = 'pick'; }, { color: '#d8342c', size: 15 });
-    button(W / 2 + 10, H - 46, 150, 30, 'NEW GAME', () => { screen = 'title'; }, { color: '#5b2d8e', size: 15 });
+    TXT.draw(ctx, 'FINAL:  ' + TEAMS[w].full + ' WIN!', W / 2, 2, { size: 20, align: 'center', fill: w === match.human ? 'green' : 'red' });
+    lineScore(32);
+    boxScore(90);
+    button(W / 2 - 150, H - 30, 130, 24, 'REMATCH', () => { pickSel = []; match.pickMode = 'pre'; screen = 'pick'; }, { color: '#d8342c', size: 13 });
+    button(W / 2 + 20, H - 30, 130, 24, 'NEW GAME', () => { screen = 'title'; }, { color: '#5b2d8e', size: 13 });
   }
   function renderPause() {
     dim(0.65);

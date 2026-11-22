@@ -19,13 +19,15 @@ Safari won't hide its address bar on a regular web page, so use the home screen 
 | Touch | Keyboard | On offense | On defense |
 |---|---|---|---|
 | Left thumb joystick | Arrows or WASD | Move | Move |
-| SHOOT | Space or J | Shoot (hold, release at the top of the jump) | Jump to block or rebound |
+| SHOOT | Space or J | Hold to rise, let go to shoot (best at the top of the jump) | Jump to block or rebound |
 | PASS | K | Pass (CALL asks your teammate for the ball) | Steal |
 | TURBO | Shift or L | Run faster, dunk | Turbo + Steal = shove |
 
 - Hold **TURBO** and press **SHOOT** near the rim to dunk. You can slide your thumb from TURBO onto SHOOT.
 - When your CPU teammate has the ball, PASS calls for it and SHOOT tells him to shoot.
+- A quick tap on SHOOT lets the ball go early, which usually misses. Hold it, then let go at the top.
 - Hit three in a row and you're **red hot**.
+- Box scores (points, rebounds, assists, steals, blocks, field goals, threes) and score by quarter after every quarter, at halftime and at the final.
 
 ## The game
 
