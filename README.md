@@ -20,7 +20,7 @@ Safari won't hide its address bar on a regular web page, so use the home screen 
 |---|---|---|---|
 | Left thumb joystick | Arrows or WASD | Move | Move |
 | SHOOT | Space or J | Shoot (hold, release at the top of the jump) | Jump to block or rebound |
-| PASS | K | Pass to your teammate | Steal |
+| PASS | K | Pass (CALL asks your teammate for the ball) | Steal |
 | TURBO | Shift or L | Run faster, dunk | Turbo + Steal = shove |
 
 - Hold **TURBO** and press **SHOOT** near the rim to dunk. You can slide your thumb from TURBO onto SHOOT.
@@ -29,7 +29,7 @@ Safari won't hide its address bar on a regular web page, so use the home screen 
 
 ## The game
 
-- Two-on-two, four 3-minute quarters, 24-second shot clock, overtime if tied.
+- Two-on-two on a high school length court (84 feet), four 3-minute quarters, 24-second shot clock, overtime if tied.
 - Pick 2 of your team's 3 players before tip-off, and sub at halftime.
 - Every game is played in the Muncie Fieldhouse.
 
@@ -41,8 +41,10 @@ Early build. The Red Bulldogs and Blue Eagles are placeholder teams for testing 
 
 - `index.html`: page, touch buttons, full-screen setup
 - `js/teams.js`: rosters and ratings (edit this for new teams)
-- `js/game.js`: gameplay, CPU players, screens
-- `js/art.js`: pixel art for players, the floor and the Fieldhouse
-- `js/font.js`, `js/audio.js`: arcade font and sound effects
+- `js/game.js`: gameplay, CPU players, screens, touch controls
+- `js/puppet.js`: the shaded, jointed player figures and their poses
+- `js/arena.js`: the Fieldhouse floor, stands, banners and ball
+- `js/text.js`, `js/audio.js`: arcade text and sound effects
+- `fonts/`: Anton font (SIL Open Font License)
 
 No libraries, no build step. All art and sound is generated in code.
