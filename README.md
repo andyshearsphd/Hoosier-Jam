@@ -16,7 +16,10 @@ A two-on-two arcade basketball game for your phone, styled after 1993 arcade NBA
 - Four 3-minute quarters on a high school length court, a 24-second shot clock, and overtime if it's tied.
 - Hold SHOOT to rise and let go at the top of your jump for your best shot. Let go too early or too late and it probably won't fall.
 - Tap SHOOT for a pump fake. You stay on the floor, and a defender who bites leaves his feet, giving you a clean look. The CPU will pump fake you too, so don't leave your feet too early.
-- Hold TURBO and hit SHOOT near the rim to dunk. Long dunks can spin.
+- A pump fake picks up your dribble. After that your feet are planted until you pass or shoot.
+- Heaves from beyond 30 feet go in about 1 time in 50.
+- Only one team can be on fire at a time.
+- Hold TURBO and hit SHOOT near the rim to dunk. The farther out you take off, the bigger the move: windmills, tomahawks, 360s, 720s, head-over-heels flips and soaring dunks from the free throw line.
 - On defense, swipe for steals, jump to block, or hold TURBO and hit STEAL to shove.
 - Make three in a row and you're red hot.
 - After every quarter you get a box score and the score by quarter.

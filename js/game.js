@@ -10,7 +10,7 @@
   const CL = ARENA.CL, MID = ARENA.MID;
   const S0 = 12, SK = 0.08, FY0 = 124, SL = 3.3;
   const sAt = z => S0 + z * SK;
-  let camX = MID, shake = 0;
+  let camX = MID, camY = 0, shake = 0;
   const proj = (x, y, z) => { const s = sAt(z); return [W / 2 + (x - camX) * s, FY0 + z * SL - y * s, s]; };
   const RIMX = [5.25, CL - 5.25], RIM_Y = 10, RIM_Z = 25, BOARD_X = [4, CL - 4];
   const GRAV = 62, BGRAV = 42;
@@ -99,7 +99,7 @@
   }
 
   // ---------- possession ----------
-  function giveBall(p) { ball.holder = p; ball.state = 'held'; ball.shot = null; ball.pass = null; ball.lastTeam = p.team; p.noGrab = 0; p.astFrom = null; }
+  function giveBall(p) { ball.holder = p; ball.state = 'held'; ball.shot = null; ball.pass = null; ball.lastTeam = p.team; p.noGrab = 0; p.astFrom = null; p.pickedUp = false; }
   function setupPossession(team) {
     const dirO = match.dir[team];
     const off = players.filter(p => p.team === team), def = players.filter(p => p.team !== team);
@@ -171,7 +171,7 @@
 
   // Pump fake: ball up to the chin and back with no jump. Nearby CPU defenders may bite and leave their feet.
   function pumpFake(p) {
-    p.fakeT = 0.36;
+    p.fakeT = 0.36; p.pickedUp = true; // dribble is dead now: pass or shoot
     p.face = Math.sign(attackRim(p.team) - p.x) || p.face;
     let bit = false;
     for (const o of oppsOf(p)) {
@@ -213,7 +213,16 @@
     }
     const ex = rimX - dirT * 1.1, ez = RIM_Z + (p.z > RIM_Z ? 0.6 : -0.6);
     p.state = 'dunk'; p.t = 0; st(p).fga++;
-    p.dunk = { sx: p.x, sz: p.z, ex, ez, T: 0.38 + d * 0.035, arc: 3 + d * 0.3, endY: Math.max(1, 10.9 - (p.h * 1.33 + 0.4)), spin: d > 9 && Math.random() < 0.5, contest };
+    // pick the dunk: longer takeoffs get the fancy stuff, high flyers get the 720 and the free throw line
+    const big = p.r.dnk >= 7;
+    const pool = d > 10.5 ? (big ? ['soar', 'soar', 'spin360', 'spin720', 'flip', 'windmill'] : ['spin360', 'windmill', 'flip', 'basic'])
+      : d > 8 ? ['spin360', 'windmill', 'tomahawk', 'flip', 'basic', big ? 'spin720' : 'tomahawk']
+      : ['basic', 'tomahawk', 'windmill', 'basic'];
+    const type = pick(pool), turns = type === 'spin360' ? 1 : type === 'spin720' ? 2 : 0;
+    let T = 0.38 + d * 0.035 + turns * 0.12, arc = 3 + d * 0.3 + turns * 0.8;
+    if (type === 'soar') { T = 0.55 + d * 0.05; arc = 5 + d * 0.38; }
+    if (type === 'flip') { T += 0.1; arc += 1; }
+    p.dunk = { sx: p.x, sz: p.z, ex, ez, T, arc, endY: Math.max(1, 10.9 - (p.h * 1.33 + 0.4)), type, turns, contest };
     p.face = Math.sign(rimX - p.x) || p.face;
     if (!p.fire) p.turbo = Math.max(0, p.turbo - 10);
     p.spin = 0;
@@ -247,6 +256,7 @@
     prob *= shotMod(p.team);
     if (p.fire) prob = Math.max(prob, three ? 0.82 : 0.9);
     prob = clamp(prob, 0.03, 0.96);
+    if (three && d > 30) prob = 0.02; // heaves go in about 1 in 50, on fire or not
     const made = Math.random() < prob;
     let tx = rimX, ty = RIM_Y, tz = RIM_Z;
     if (!made) { const a = rnd(0, Math.PI * 2), r = rnd(0.95, 1.5); tx += Math.cos(a) * r; tz += Math.sin(a) * r * 0.8; ty = 10.15; }
@@ -299,7 +309,13 @@
   }
 
   // ---------- scoring ----------
-  function score(p, pts, kind) {
+  const DUNK_CALLS = {
+    basic: ['SLAM!', 'JAM IT!', 'BOOM SHAKE!', 'THROWN DOWN!', 'WITH AUTHORITY!', 'MONSTER JAM!'],
+    tomahawk: ['TOMAHAWK!', 'HAMMER DOWN!'], windmill: ['WINDMILL!', 'WINDMILL JAM!'],
+    spin360: ['360 JAM!', 'SPIN CYCLE!'], spin720: ['720!!', 'DOUBLE SPIN!'],
+    flip: ['HEAD OVER HEELS!', 'FLIP JAM!'], soar: ['FROM THE FREE THROW LINE!', 'AIR MUNCIE!', 'LOOK AT THAT HANG TIME!'],
+  };
+  function score(p, pts, kind, dtype) {
     const t = p.team;
     match.score[t] += pts;
     const S_ = st(p); S_.pts += pts; S_.fgm++; if (pts === 3) S_.tpm++;
@@ -310,8 +326,8 @@
     p.streak++; p.celebT = 1.1;
     for (const o of players) if (o.team !== t) { o.streak = 0; o.fire = false; }
     if (!p.fire && p.streak === 2) callout('HEATING UP...', 'fire');
-    else if (!p.fire && p.streak >= 3) { p.fire = true; callout("HE'S RED HOT!", 'fire', true); SFX.fire(); }
-    else if (kind === 'dunk') callout(pick(['SLAM!', 'JAM IT!', 'BOOM SHAKE!', 'THROWN DOWN!', 'TOMAHAWK!', 'WITH AUTHORITY!', 'MONSTER JAM!']), 'white', true);
+    else if (!p.fire && p.streak >= 3 && !players.some(o => o.team !== t && o.fire)) { p.fire = true; callout("HE'S RED HOT!", 'fire', true); SFX.fire(); }
+    else if (kind === 'dunk') callout(pick(DUNK_CALLS[dtype] || DUNK_CALLS.basic), dtype && dtype !== 'basic' ? 'gold' : 'white', true);
     else if (pts === 3) callout(ball.shot && ball.shot.d > 25 ? 'FROM THE PARKING LOT!' : pick(['FROM DOWNTOWN!', 'BOMBS AWAY!', 'SPLASH!', 'GOOD FROM WAY OUT!']), 'gold', true);
     else if (Math.random() < 0.35) callout(pick(['NOTHING BUT NET!', 'COUNT IT!', 'BUCKETS!']), 'gold');
     if (match.clock <= 0) callout('AT THE BUZZER!', 'fire', true);
@@ -552,7 +568,14 @@
 
     if (holder !== p) A.hadBall = false;
     if (holder === p) {
-      if (!A.hadBall) { A.hadBall = true; A.fakes = 0; A.plan = Math.random() < p.r.thr * 0.05 ? 'pull' : 'drive'; A.pullAng = rnd(-1.1, 1.1); }
+      if (!A.hadBall) {
+        A.hadBall = true; A.fakes = 0; A.plan = Math.random() < p.r.thr * 0.05 ? 'pull' : 'drive'; A.pullAng = rnd(-1.1, 1.1);
+        // pick a route to the rim for this trip: attack a wing, the corner, the baseline, the top, or straight in
+        const sd = Math.random() < 0.5 ? -1 : 1;
+        const routes = [[[19, 15 * sd]], [[16, 17 * sd], [4, 20 * sd]], [[18, 14 * sd], [3, 9 * sd]], [[23, 0], [12, 7 * sd]], [[20, 13 * sd], [17, -12 * sd]], []];
+        A.wps = pick(routes).map(([dx, dz]) => [aRim - dirT * dx, RIM_Z + dz]).filter(([wx]) => (wx - p.x) * dirT > 2);
+        A.laneZ = rnd(-9, 9);
+      }
       if (p.inboundT > 0) { moveTo(it, p, p.x + dirT * 5, p.z); return it; }
       const d = hyp(p.x - aRim, p.z - RIM_Z);
       const open = openness(p);
@@ -560,6 +583,15 @@
       if (A.wantPass && mate) { A.wantPass = false; it.passPress = true; return it; }
       // a defender bit on the pump fake: shoot over him
       if (p.fakeT <= 0.05 && d < 24 && opps.some(o => o.state === 'air' && d2(o, p) < 7 && o.vy < 6)) { it.shootPress = true; return it; }
+      // end of the quarter or shot clock: chuck it from wherever he is
+      if (p.fakeT <= 0 && (match.clock < 2.2 || match.shot < 1.4)) { it.shootPress = true; it.turbo = d <= dunkRange(p); return it; }
+      // dribble is dead: pass or shoot, no walking
+      if (p.pickedUp && p.fakeT <= 0) {
+        if (!deciding) return it;
+        const mOpen = mate ? openness(mate) : 0;
+        if (mate && mOpen > 5 && open < 4 && Math.random() < 0.6) it.passPress = true; else if (Math.random() < 0.7) it.shootPress = true;
+        return it;
+      }
       if (deciding) {
         // pump fake a close defender now and then (more often against the human)
         if ((A.fakes || 0) < 2 && p.fakeT <= 0 && d > 9 && d < 23) {
@@ -588,6 +620,11 @@
         if (A.plan === 'pull') { moveTo(it, p, px, pz); it.turbo = p.turbo > 40 && hyp(p.x - px, p.z - pz) > 10; return it; }
       }
       let tx = aRim - dirT * 1.5, tz = RIM_Z + A.laneZ * Math.min(1, d / 18);
+      if (A.wps && A.wps.length) {
+        const [wx, wz] = A.wps[0];
+        if (hyp(p.x - wx, p.z - wz) < 3.5 || (p.x - wx) * dirT > 1) { A.wps.shift(); A.laneZ = (p.z > RIM_Z ? -1 : 1) * rnd(2, 8); } // crossover at the turn
+        else { tx = wx; tz = wz; }
+      }
       for (const o of opps) { const ahead = (o.x - p.x) * dirT; if (ahead > 0 && ahead < 6 && Math.abs(o.z - p.z) < 3) tz += (p.z < o.z ? -7 : 7); }
       moveTo(it, p, tx, clamp(tz, 3, 47));
       it.turbo = (p.turbo > 35 && d > 8 && d < 34 && open > 3) || p.fire;
@@ -600,8 +637,18 @@
       if (A.cutT <= 0) { A.cutting = 1.2; A.cutT = rnd(2.5, 5); A.spotZ = Math.random() < 0.5 ? -1 : 1; }
       let tx, tz;
       const hd = hyp(holder.x - aRim, holder.z - RIM_Z);
+      A.spotT = (A.spotT || 0) - dt;
+      if (A.spotT <= 0 || !A.spot) {
+        const shooter = p.r.thr >= 6;
+        const spots = shooter ? [[20, 15], [20, -15], [3, 21], [3, -21], [23, 0], [13, 8], [13, -8]]
+                              : [[13, 8], [13, -8], [6, 12], [6, -12], [16, 15], [16, -15], [3, 18], [3, -18]];
+        const opts = spots.map(([dx, dz]) => [aRim - dirT * dx, RIM_Z + dz]).filter(([sx, sz]) => hyp(sx - holder.x, sz - holder.z) > 9);
+        const away = opts.filter(([, sz]) => (sz - RIM_Z) * (holder.z - RIM_Z) <= 0);
+        A.spot = pick(away.length && Math.random() < 0.7 ? away : (opts.length ? opts : [[aRim - dirT * 15, RIM_Z]]));
+        A.spotT = rnd(1.3, 2.8);
+      }
       if (A.cutting > 0) { A.cutting -= dt; tx = aRim - dirT * 4; tz = RIM_Z + A.spotZ * 4; }
-      else { tx = aRim - dirT * A.spotX; tz = holder.z < RIM_Z ? 41 : 9; }
+      else { tx = A.spot[0]; tz = A.spot[1]; }
       if (hd > 30) tx = holder.x + dirT * 12; // run the floor ahead of the ball
       if (d2(p, holder) < 7) tz += p.z < holder.z ? -5 : 5;
       const L = moveTo(it, p, tx, clamp(tz, 3, 47));
@@ -670,7 +717,7 @@
   // ---------- apply intents ----------
   function applyIntent(p, it, dt) {
     p.fakeT = Math.max(0, (p.fakeT || 0) - dt);
-    if (ball.holder !== p) p.gather = null;
+    if (ball.holder !== p) { p.gather = null; p.pickedUp = false; }
     p.stealCd -= dt; p.jumpCd -= dt; p.noGrab -= dt; p.inboundT -= dt; p.stealT -= dt; p.stun -= dt; p.celebT -= dt;
     if (p.state === 'down') return;
     const moving = Math.abs(it.mx) + Math.abs(it.mz) > 0.2;
@@ -681,7 +728,7 @@
 
     if (onGround(p) && p.stun <= 0) {
       const sp = speedOf(p) * (p.usingTurbo ? 1.4 : 1) * (ball.holder === p ? 0.96 : 1) * inbSpeed(p);
-      const pivot = ball.holder === p && (p.gather != null || p.fakeT > 0);
+      const pivot = ball.holder === p && (p.gather != null || p.fakeT > 0 || p.pickedUp);
       const tx = pivot ? 0 : it.mx * sp, tz = pivot ? 0 : it.mz * sp * 0.85;
       const k = Math.min(1, dt * 18);
       p.vx += (tx - p.vx) * k; p.vz += (tz - p.vz) * k;
@@ -747,7 +794,10 @@
         const D = p.dunk, u = Math.min(1, p.t / D.T);
         p.x = D.sx + (D.ex - D.sx) * u; p.z = D.sz + (D.ez - D.sz) * u;
         p.y = D.endY * u + D.arc * 4 * u * (1 - u);
-        p.spin = D.spin ? u * Math.PI * 2 : 0;
+        let e = clamp((u - 0.08) / 0.8, 0, 1); e = e * e * (3 - 2 * e);
+        p.spin = D.type === 'flip' ? e * Math.PI * 2 : 0;          // head over heels
+        p.hturn = D.turns ? e * D.turns * Math.PI * 2 : 0;          // 360 or 720 body spin
+        p.dunkE = e;
         if (u >= 1) finishDunk(p);
         break;
       }
@@ -769,7 +819,8 @@
     for (const o of oppsOf(p)) {
       if (o.state === 'air' && hyp(o.x - rimX, o.z - RIM_Z) < 4 && reachOf(o) + 0.5 > 10.2 && Math.random() < 0.05 + o.r.blk * 0.025 + (o.human ? 0.12 : 0)) { blocked = o; break; }
     }
-    const ct = p.dunk.contest;
+    const ct = p.dunk.contest, dtype = p.dunk.type;
+    p.hturn = 0;
     if (!blocked && ct && ct.state !== 'down' && Math.random() < (isCPUteam(p.team) ? 0.22 : 0.1) + ct.r.blk * 0.02) blocked = ct;
     p.dunk = null; p.spin = 0;
     if (blocked) {
@@ -787,7 +838,7 @@
     SFX.dunk();
     burst(rimX, 10, RIM_Z, 22, ['#ffffff', '#ffd23c', '#ff8a3c'], 10);
     ball.shot = { d: 0 };
-    score(p, 2, 'dunk');
+    score(p, 2, 'dunk', dtype);
   }
 
   function grabCheck() {
@@ -813,13 +864,20 @@
     if (b.state === 'held') {
       const p = b.holder;
       if (p.state === 'dunk') {
-        // keep the ball in his hands, even mid-spin
-        const cy = p.h * 0.49, ox = p.face * 1.1, oy = p.h * 1.28 - cy, a = -(p.spin || 0) * p.face;
-        b.x = p.x + ox * Math.cos(a) - oy * Math.sin(a); b.y = p.y + cy + ox * Math.sin(a) + oy * Math.cos(a); b.z = p.z + 0.2;
+        const ty = p.dunk.type, k = p.h / 6.5, turn = Math.cos(p.hturn || 0);
+        if ((ty === 'windmill' || ty === 'tomahawk' || ty === 'soar') && p.pose) {
+          // ball rides the hand through the arm swing
+          const a = p.pose.armF[0];
+          b.x = p.x + p.face * turn * Math.sin(a) * 2.45 * k; b.y = p.y + p.h * 0.83 - Math.cos(a) * 2.45 * k; b.z = p.z + 0.2;
+        } else {
+          // keep the ball in his hands, even mid-flip or mid-spin
+          const cy = p.h * 0.49, ox = p.face * 1.1 * turn, oy = p.h * 1.28 - cy, a = -(p.spin || 0) * p.face;
+          b.x = p.x + ox * Math.cos(a) - oy * Math.sin(a); b.y = p.y + cy + ox * Math.sin(a) + oy * Math.cos(a); b.z = p.z + 0.2;
+        }
       }
       else if (p.state !== 'run' && p.state !== 'down') { b.x = p.x + p.face * 0.45; b.y = p.y + p.h * 1.14 + 0.4; b.z = p.z + 0.1; }
-      else if (p.gather != null || p.fakeT > 0) {
-        const u = p.gather != null ? Math.min(1, p.gather / GATHER) : 1 - Math.abs(p.fakeT - 0.18) / 0.18;
+      else if (p.gather != null || p.fakeT > 0 || p.pickedUp) {
+        const u = p.gather != null ? Math.min(1, p.gather / GATHER) : p.fakeT > 0 ? 1 - Math.abs(p.fakeT - 0.18) / 0.18 : 0.3;
         b.x = p.x + p.face * (0.85 - 0.3 * u) * p.h / 6.5; b.y = p.h * (0.6 + 0.42 * u); b.z = p.z + 0.4;
       }
       else if (match.phase === 'dead') { b.x = p.x + p.face * 0.75 * p.h / 6.5; b.y = p.h * 0.6; b.z = p.z + 0.4; }
@@ -988,6 +1046,13 @@
     if (ball.holder) tx = ball.holder.x + match.dir[ball.holder.team] * 6;
     if (match.phase === 'tip') tx = MID;
     camX += (tx - camX) * Math.min(1, dt * 5);
+    // tilt the camera up to keep a high-flying dunker on screen
+    let ty = 0;
+    for (const p of players) if (p.state === 'dunk' || p.state === 'hang') {
+      const [, hy] = proj(p.x, p.y + p.h * 1.3, p.z);
+      ty = Math.max(ty, 48 - hy);
+    }
+    camY += (Math.min(ty, 90) - camY) * Math.min(1, dt * (ty > camY ? 7 : 3));
     const half = (W / 2) / sAt(50);
     camX = clamp(camX, half - 1.5, CL - half + 1.5);
     updateButtonLabels();
@@ -1098,7 +1163,14 @@
   function poseFor(p) {
     const P = PUP.P;
     switch (p.state) {
-      case 'dunk': return P.dunk(Math.min(1, p.t / p.dunk.T));
+      case 'dunk': {
+        const u = Math.min(1, p.t / p.dunk.T), e = p.dunkE || 0, pz = P.dunk(u);
+        const ty = p.dunk.type;
+        if (ty === 'windmill') { pz.armF = [Math.PI + e * Math.PI * 2, 0.1]; pz.armB = [1.2, 0.8]; }
+        else if (ty === 'tomahawk') { const a = 3.9 - 1.6 * u * u; pz.armF = [a, 0.25]; pz.armB = [a - 0.25, 0.35]; }
+        else if (ty === 'soar') { pz.legF = [1.25, 0.35]; pz.legB = [-0.7, 0.6]; pz.armF = [1.9 + 0.8 * u, 0.1]; pz.armB = [-0.9, 0.5]; pz.lean = 0.15; }
+        return pz;
+      }
       case 'hang': return P.hang();
       case 'shoot': return ball.holder === p ? P.jump() : P.shotFollow();
       case 'layup': return P.layup();
@@ -1109,6 +1181,7 @@
     const hasBall = ball.holder === p;
     if (hasBall && p.gather != null) return P.fake(Math.min(1, p.gather / GATHER));
     if (hasBall && p.fakeT > 0) return P.fake(Math.max(0, 1 - Math.abs(p.fakeT - 0.18) / 0.18));
+    if (hasBall && p.pickedUp && match.phase === 'live') return P.fake(0.3); // dribble picked up: ball held at the chest
     if (hasBall && match.phase === 'dead') {
       // carrying the dead ball out of bounds with both hands
       const pz = hyp(p.vx, p.vz) > 2 ? P.run(p.anim, true, false) : P.stand(time);
@@ -1138,6 +1211,7 @@
     } else ctx.translate(Math.round(sx), Math.round(sy));
     if (p.state === 'down') { ctx.translate(0, -0.5 * S); ctx.rotate(-p.face * Math.PI / 2 * Math.min(1, p.t * 6)); }
     if (p.spin) { ctx.translate(0, -3.2 * S); ctx.rotate(p.spin * p.face); ctx.translate(0, 3.2 * S); }
+    if (p.hturn) { const c = Math.cos(p.hturn); ctx.scale(Math.abs(c) < 0.24 ? 0.24 * Math.sign(c || 1) : c, 1); } // body spinning around
     PUP.draw(ctx, p.look, pose, S, p.face, { flat: reflect });
     ctx.restore();
     if (reflect) return;
@@ -1169,6 +1243,11 @@
     ctx.fillStyle = '#121016'; ctx.fillRect(0, 0, W, H);
     ctx.save();
     if (shake > 0) ctx.translate(Math.round(rnd(-3, 3)), Math.round(rnd(-3, 3)));
+    if (camY > 0.5) {
+      ctx.translate(0, Math.round(camY));
+      const rg = ctx.createLinearGradient(0, -camY, 0, 0); rg.addColorStop(0, '#0c0b10'); rg.addColorStop(1, '#15131b');
+      ctx.fillStyle = rg; ctx.fillRect(-10, -camY - 4, W + 20, camY + 6);
+    }
     drawStands();
     drawFloor();
     drawBasketFrame(0); drawBasketFrame(1);
@@ -1508,5 +1587,5 @@
   if (AUTO) {
     const a2 = Math.floor(Math.random() * SCHOOLS.length); let b2 = Math.floor(Math.random() * SCHOOLS.length);
     setMatchup(a2, b2); match.human = 0; match.picks = [[0, 1], [1, 2]]; startGame(); elControls.classList.add('on'); elPause.classList.add('on'); }
-  window.HJ = { setMatchup, match, ball, get players() { return players; }, get screen() { return screen; }, set screen(v) { screen = v; }, startQuarter, setupPlayers, startGame, get paused() { return paused; }, set paused(v) { paused = v; } };
+  window.HJ = { stepN: n => { for (let i = 0; i < n; i++) step(1 / 60); }, setMatchup, match, ball, get players() { return players; }, get screen() { return screen; }, set screen(v) { screen = v; }, startQuarter, setupPlayers, startGame, get paused() { return paused; }, set paused(v) { paused = v; } };
 })();
