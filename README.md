@@ -13,6 +13,7 @@ A two-on-two arcade basketball game for your phone, styled after 1993 arcade NBA
 - Pick a team, then pick two of its three players. Your first pick is you, and your second pick is your CPU teammate. You can sub at halftime.
 - Four 3-minute quarters on a high school length court, a 24-second shot clock, and overtime if it's tied.
 - Hold SHOOT to rise and let go at the top of your jump for your best shot. Let go too early or too late and it probably won't fall.
+- Tap SHOOT for a pump fake. You stay on the floor, and a defender who bites leaves his feet, giving you a clean look.
 - Hold TURBO and hit SHOOT near the rim to dunk. Long dunks can spin.
 - On defense, swipe for steals, jump to block, or hold TURBO and hit STEAL to shove.
 - Make three in a row and you're red hot.

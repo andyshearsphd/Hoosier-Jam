@@ -162,6 +162,25 @@
     SFX.pass();
   }
   const dunkRange = p => 5 + p.r.dnk * 0.95;
+  const GATHER = 0.16; // let go of SHOOT sooner than this for a pump fake
+
+  // Pump fake: ball up to the chin and back with no jump. Nearby CPU defenders may bite and leave their feet.
+  function pumpFake(p) {
+    p.fakeT = 0.36;
+    p.face = Math.sign(attackRim(p.team) - p.x) || p.face;
+    let bit = false;
+    for (const o of oppsOf(p)) {
+      if (!onGround(o) || o.human || o.stun > 0) continue;
+      const dd = d2(o, p);
+      if (dd > 7) continue;
+      const chance = clamp(0.62 - o.r.blk * 0.03 - (dd > 4.5 ? 0.15 : 0), 0.2, 0.6);
+      if (Math.random() < chance) {
+        o.ai.jumpAt = -1; o.jumpCd = 0;
+        jump(o); o.bitFake = true; bit = true;
+      }
+    }
+    if (bit) callout(pick(['FAKED HIM OUT!', 'UP FAKE!', 'BIT ON THE FAKE!']), 'ice');
+  }
 
   function startShot(p, turbo) {
     const rimX = attackRim(p.team), dirT = match.dir[p.team];
@@ -329,7 +348,7 @@
   const latch = { shoot: false, pass: false };
   const keys = new Set();
   window.addEventListener('keydown', e => {
-    if (!keys.has(e.code)) { if (e.code === 'Space' || e.code === 'KeyJ') latch.shoot = true; if (e.code === 'KeyK') latch.pass = true; }
+    if (!keys.has(e.code)) { if (e.code === 'Space' || e.code === 'KeyJ') { latch.shoot = true; input.shootAt = performance.now(); } if (e.code === 'KeyK') latch.pass = true; }
     keys.add(e.code);
     if (e.code === 'KeyP' || e.code === 'Escape') { if (screen === 'play') paused = !paused; }
     if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
@@ -382,7 +401,7 @@
       }
       const hits = btnZone(x, y);
       touches.set(id, { hits, turboLatch: hits.includes('turbo') });
-      if (hits.includes('shoot')) latch.shoot = true;
+      if (hits.includes('shoot')) { latch.shoot = true; input.shootAt = performance.now(); }
       if (hits.includes('pass')) latch.pass = true;
       return;
     }
@@ -393,7 +412,7 @@
     const t = touches.get(id);
     if (t) {
       const hits = btnZone(x, y);
-      if (hits.includes('shoot') && !t.hits.includes('shoot')) latch.shoot = true;
+      if (hits.includes('shoot') && !t.hits.includes('shoot')) { latch.shoot = true; input.shootAt = performance.now(); }
       if (hits.includes('pass') && !t.hits.includes('pass')) latch.pass = true;
       t.hits = hits; if (hits.includes('turbo')) t.turboLatch = true;
     }
@@ -619,6 +638,8 @@
 
   // ---------- apply intents ----------
   function applyIntent(p, it, dt) {
+    p.fakeT = Math.max(0, (p.fakeT || 0) - dt);
+    if (ball.holder !== p) p.gather = null;
     p.stealCd -= dt; p.jumpCd -= dt; p.noGrab -= dt; p.inboundT -= dt; p.stealT -= dt; p.stun -= dt; p.celebT -= dt;
     if (p.state === 'down') return;
     const moving = Math.abs(it.mx) + Math.abs(it.mz) > 0.2;
@@ -629,7 +650,8 @@
 
     if (onGround(p) && p.stun <= 0) {
       const sp = speedOf(p) * (p.usingTurbo ? 1.4 : 1) * (ball.holder === p ? 0.96 : 1) * (match.inb && p === match.inb.who && match.inb.stage !== 'pause' ? 1.3 : 1);
-      const tx = it.mx * sp, tz = it.mz * sp * 0.85;
+      const pivot = ball.holder === p && (p.gather != null || p.fakeT > 0);
+      const tx = pivot ? 0 : it.mx * sp, tz = pivot ? 0 : it.mz * sp * 0.85;
       const k = Math.min(1, dt * 18);
       p.vx += (tx - p.vx) * k; p.vz += (tz - p.vz) * k;
       if (Math.abs(p.vx) > 1.5) p.face = Math.sign(p.vx);
@@ -642,8 +664,21 @@
     const holder = ball.holder;
     if (holder === p) {
       if (onGround(p) && p.inboundT <= 0) {
-        if (it.passPress) passBall(p, mateOf(p));
-        else if (it.shootPress) startShot(p, it.turbo);
+        if (it.passPress && p.gather == null) { passBall(p, mateOf(p)); p.fakeT = 0; }
+        else if (it.shootPress && p.gather == null && p.fakeT < 0.15) {
+          const d = hyp(p.x - attackRim(p.team), p.z - RIM_Z);
+          const dunkable = (it.turbo || p.fire) && d <= dunkRange(p) && (p.turbo > 5 || p.fire);
+          // the human gathers first: a quick tap is a pump fake, holding goes up for the shot
+          if (p.human && !dunkable && d >= 7.5) { p.gather = 0; p.fakeT = 0; p.gatherAt = input.shootAt || performance.now(); }
+          else startShot(p, it.turbo);
+        }
+        if (p.gather != null && ball.holder === p) {
+          p.gather += dt;
+          // timed against the real clock, so a frame hiccup can't turn a tap into a shot
+          const held = (performance.now() - p.gatherAt) / 1000;
+          if (!it.shootHeld && held < GATHER) { p.gather = null; pumpFake(p); }
+          else if (held >= GATHER && p.gather >= GATHER * 0.5) { p.gather = null; startShot(p, false); }
+        }
       }
       // hold SHOOT to rise; the ball goes when you let go (best at the top of the jump)
       if (p.state === 'shoot' && (it.shootRelease || p.vy < -13)) releaseShot(p);
@@ -672,6 +707,7 @@
         if (p.y <= 0) {
           const wasShooting = p.state === 'shoot' || p.state === 'layup';
           p.y = 0; p.vy = 0; p.state = 'run'; p.vx *= 0.3; p.vz *= 0.3;
+          if (p.bitFake) { p.bitFake = false; p.stun = 0.4; }
           if (wasShooting && ball.holder === p && match.phase === 'live') releaseShot(p);
         }
         break;
@@ -750,6 +786,10 @@
         b.x = p.x + ox * Math.cos(a) - oy * Math.sin(a); b.y = p.y + cy + ox * Math.sin(a) + oy * Math.cos(a); b.z = p.z + 0.2;
       }
       else if (p.state !== 'run' && p.state !== 'down') { b.x = p.x + p.face * 0.45; b.y = p.y + p.h * 1.14 + 0.4; b.z = p.z + 0.1; }
+      else if (p.gather != null || p.fakeT > 0) {
+        const u = p.gather != null ? Math.min(1, p.gather / GATHER) : 1 - Math.abs(p.fakeT - 0.18) / 0.18;
+        b.x = p.x + p.face * (0.85 - 0.3 * u) * p.h / 6.5; b.y = p.h * (0.6 + 0.42 * u); b.z = p.z + 0.4;
+      }
       else if (match.phase === 'dead') { b.x = p.x + p.face * 0.75 * p.h / 6.5; b.y = p.h * 0.6; b.z = p.z + 0.4; }
       else {
         const sp = hyp(p.vx, p.vz);
@@ -1035,6 +1075,8 @@
     }
     if (p.stealT > 0) return P.steal();
     const hasBall = ball.holder === p;
+    if (hasBall && p.gather != null) return P.fake(Math.min(1, p.gather / GATHER));
+    if (hasBall && p.fakeT > 0) return P.fake(Math.max(0, 1 - Math.abs(p.fakeT - 0.18) / 0.18));
     if (hasBall && match.phase === 'dead') {
       // carrying the dead ball out of bounds with both hands
       const pz = hyp(p.vx, p.vz) > 2 ? P.run(p.anim, true, false) : P.stand(time);
@@ -1342,7 +1384,7 @@
     button(W / 2 - 80, 98, 160, 28, 'RESUME', () => { paused = false; }, { color: '#d8342c', size: 14 });
     button(W / 2 - 80, 134, 160, 28, SFX.isMuted() ? 'SOUND: OFF' : 'SOUND: ON', () => SFX.setMuted(!SFX.isMuted()), { color: '#333', size: 14 });
     button(W / 2 - 80, 170, 160, 28, 'EXIT TO TITLE', () => { paused = false; screen = 'title'; elControls.classList.remove('on'); elPause.classList.remove('on'); }, { color: '#5b2d8e', size: 14 });
-    const lines = ['LEFT THUMB: MOVE.  RIGHT THUMB: SHOOT, PASS, TURBO.', 'HOLD TURBO AND HIT SHOOT NEAR THE RIM TO DUNK.', 'DEFENSE: STEAL, JUMP TO BLOCK, TURBO + STEAL TO SHOVE.', 'HOLD SHOOT TO JUMP. LET GO AT THE TOP OF YOUR JUMP.'];
+    const lines = ['LEFT THUMB: MOVE.  RIGHT THUMB: SHOOT, PASS, TURBO.', 'HOLD TURBO AND HIT SHOOT NEAR THE RIM TO DUNK.', 'DEFENSE: STEAL, JUMP TO BLOCK, TURBO + STEAL TO SHOVE.', 'HOLD SHOOT TO JUMP, LET GO AT THE TOP. TAP SHOOT TO PUMP FAKE.'];
     lines.forEach((l, i) => TXT.draw(ctx, l, W / 2, 212 + i * 15, { size: 10, align: 'center', fill: 'white', shadow: false, strokeW: 2 }));
   }
 

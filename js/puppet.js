@@ -296,6 +296,8 @@ const PUP = (() => {
     defend: (ph) => ({ lean: 0.22, crouch: 0.75, legF: [0.55, 1.0], legB: [-0.45, 0.85], armF: [1.35 + Math.sin(ph) * 0.25, 0.5], armB: [2.2 + Math.cos(ph) * 0.2, 0.5] }),
     steal: () => ({ lean: 0.45, crouch: 0.65, legF: [0.8, 1.1], legB: [-0.6, 0.5], armF: [1.5, 0.1], armB: [-0.5, 0.9] }),
     down: () => ({ lean: 0, crouch: 0, legF: [0.25, 0.4], legB: [-0.1, 0.25], armF: [1.6, 0.5], armB: [1.2, 0.6] }),
+    // pump fake: u goes 0 (ball at the chest) to 1 (ball up at the chin, ready to shoot)
+    fake: (u) => ({ lean: 0.02, crouch: 0.32 - 0.14 * u, legF: [0.3, 0.6], legB: [-0.2, 0.5], armF: [1.45 + 1.0 * u, 1.05 - 0.2 * u], armB: [1.35 + 1.0 * u, 1.15 - 0.2 * u] }),
     celebrate: (ph) => ({ lean: -0.06, crouch: 0.12, legF: [0.12, 0.2], legB: [-0.1, 0.16], armF: [2.9, 0.3 + 0.3 * Math.sin(ph * 2)], armB: [0.1, 1.6] }),
   };
   const KEYS = ['lean', 'crouch', 'head'];
