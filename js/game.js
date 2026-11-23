@@ -288,20 +288,39 @@
     if (match.clock <= 0) callout('AT THE BUZZER!', 'fire', true);
     crowdHype = pts === 3 || kind === 'dunk' ? 2.2 : 1.2;
     SFX.crowd(pts === 3 || kind === 'dunk');
-    match.phase = 'dead'; match.phaseT = 0.45; match.inboundTeam = 1 - t; match.scoredRim = attackRim(t); match.inbounder = null;
+    match.phase = 'dead'; match.phaseT = 0.45; match.inboundTeam = 1 - t; match.scoredRim = attackRim(t); match.inb = null;
   }
-  // after a basket the nearest player on the other team sprints to the ball and picks it up
-  function updateInbound() {
+  // NBA Jam style inbound after a basket (automatic): the nearest player on the other team grabs the ball,
+  // carries it out past the baseline, pauses a half beat, and passes in to his teammate standing nearby.
+  const inInb = p => match.inb && (p === match.inb.who || p === match.inb.recv);
+  function updateInbound(dt) {
     if (match.phaseT > 0) return;
-    if (!match.inbounder) {
-      const tm = players.filter(p => p.team === match.inboundTeam && p.state !== 'down');
-      if (!tm.length) return;
-      match.inbounder = tm.reduce((a, b) => (d2(b, ball) < d2(a, ball) ? b : a));
+    let I = match.inb;
+    if (!I) {
+      const tm = players.filter(p => p.team === match.inboundTeam);
+      const who = tm.reduce((a, b) => (d2(b, ball) < d2(a, ball) ? b : a));
+      const recv = mateOf(who);
+      const base = match.scoredRim < MID ? 0 : CL, inward = match.scoredRim < MID ? 1 : -1, side = Math.random() < 0.5 ? -1 : 1;
+      I = match.inb = { stage: 'fetch', who, recv, inward, t: 0, pt: 0,
+        spot: [base - inward * 0.55, RIM_Z + side * 4], rspot: [base + inward * 8, RIM_Z - side * 4] };
     }
-    const r = match.inbounder;
-    if (r.state === 'run' && hyp(r.x - ball.x, r.z - ball.z) < 2.2 && ball.y < 4) {
-      giveBall(r); r.inboundT = 0.15;
-      match.inbounder = null; match.shot = 24; match.phase = 'live';
+    I.t += dt;
+    const w = I.who;
+    if (I.stage === 'fetch') {
+      if (w.state === 'run' && hyp(w.x - ball.x, w.z - ball.z) < 2.2 && ball.y < 4) {
+        ball.holder = w; ball.state = 'held'; ball.lastTeam = w.team; ball.shot = null; ball.pass = null;
+        I.stage = 'carry';
+      } else if (I.t > 4) { ball.x = w.x; ball.z = w.z; ball.y = 3; ball.holder = w; ball.state = 'held'; I.stage = 'carry'; }
+    } else if (I.stage === 'carry') {
+      if (hyp(w.x - I.spot[0], w.z - I.spot[1]) < 0.8 || I.t > 6) { I.stage = 'pause'; I.pt = 0; }
+    } else if (I.stage === 'pause') {
+      w.face = I.inward;
+      I.pt += dt;
+      const ready = hyp(I.recv.x - I.rspot[0], I.recv.z - I.rspot[1]) < 3 || I.t > 6;
+      if (I.pt >= 0.3 && ready) {
+        match.inb = null; match.phase = 'live'; match.shot = 24;
+        passBall(w, I.recv); ball.pass.inbound = true;
+      }
     }
   }
 
@@ -463,7 +482,13 @@
       return it;
     }
     if (match.phase === 'dead') {
-      if (p === match.inbounder) { moveTo(it, p, ball.x, ball.z, 0.4); it.turbo = true; return it; }
+      const I = match.inb;
+      if (I && p === I.who) {
+        if (I.stage === 'fetch') { moveTo(it, p, ball.x, ball.z, 0.4); it.turbo = true; }
+        else if (I.stage === 'carry') { moveTo(it, p, I.spot[0], I.spot[1], 0.6); it.turbo = true; }
+        return it;
+      }
+      if (I && p === I.recv) { moveTo(it, p, I.rspot[0], I.rspot[1], 1.2); it.turbo = hyp(p.x - I.rspot[0], p.z - I.rspot[1]) > 6; return it; }
       const inb = match.inboundTeam === p.team;
       const tx = inb ? MID - match.dir[p.team] * 4 : defRim(p.team) + (defRim(p.team) < MID ? 12 : -12);
       moveTo(it, p, tx, RIM_Z + (p.slot ? 9 : -9));
@@ -598,12 +623,12 @@
     if (p.state === 'down') return;
     const moving = Math.abs(it.mx) + Math.abs(it.mz) > 0.2;
     p.usingTurbo = it.turbo && moving && (p.turbo > 0 || p.fire);
-    if (p.usingTurbo && !p.fire && p !== match.inbounder) p.turbo = Math.max(0, p.turbo - 30 * dt);
+    if (p.usingTurbo && !p.fire && !inInb(p)) p.turbo = Math.max(0, p.turbo - 30 * dt);
     else if (!it.turbo) p.turbo = Math.min(100, p.turbo + 16 * dt);
     if (p.fire) p.turbo = 100;
 
     if (onGround(p) && p.stun <= 0) {
-      const sp = speedOf(p) * (p.usingTurbo ? 1.4 : 1) * (ball.holder === p ? 0.96 : 1) * (p === match.inbounder ? 1.3 : 1);
+      const sp = speedOf(p) * (p.usingTurbo ? 1.4 : 1) * (ball.holder === p ? 0.96 : 1) * (match.inb && p === match.inb.who && match.inb.stage !== 'pause' ? 1.3 : 1);
       const tx = it.mx * sp, tz = it.mz * sp * 0.85;
       const k = Math.min(1, dt * 18);
       p.vx += (tx - p.vx) * k; p.vz += (tz - p.vz) * k;
@@ -725,6 +750,7 @@
         b.x = p.x + ox * Math.cos(a) - oy * Math.sin(a); b.y = p.y + cy + ox * Math.sin(a) + oy * Math.cos(a); b.z = p.z + 0.2;
       }
       else if (p.state !== 'run' && p.state !== 'down') { b.x = p.x + p.face * 0.45; b.y = p.y + p.h * 1.14 + 0.4; b.z = p.z + 0.1; }
+      else if (match.phase === 'dead') { b.x = p.x + p.face * 0.75 * p.h / 6.5; b.y = p.h * 0.6; b.z = p.z + 0.4; }
       else {
         const sp = hyp(p.vx, p.vz);
         b.dribPhase += dt * (7.5 + sp * 0.22);
@@ -793,8 +819,8 @@
         const rem = Math.max(0.05, P.T - P.t);
         const hx = to.x + to.face * 0.6, hz = to.z, hy = to.y + to.h * 0.75;
         b.vx = (hx - b.x) / rem; b.vz = (hz - b.z) / rem; b.vy = (hy - b.y) / rem + 0.5 * BGRAV * rem;
-        if (hyp(to.x - b.x, to.z - b.z) < 2.4 && Math.abs(b.y - hy) < 3) { giveBall(to); to.astFrom = P.from; to.astT = time; return; }
-        if (P.t > P.T + 0.6) { giveBall(to); to.astFrom = P.from; to.astT = time; return; }
+        if (hyp(to.x - b.x, to.z - b.z) < 2.4 && Math.abs(b.y - hy) < 3) { giveBall(to); if (!P.inbound) { to.astFrom = P.from; to.astT = time; } return; }
+        if (P.t > P.T + 0.6) { giveBall(to); if (!P.inbound) { to.astFrom = P.from; to.astT = time; } return; }
       } else if (P.t > P.T + 0.3) b.state = 'loose';
       if (b.y < 0.45) { b.y = 0.45; b.vy = Math.abs(b.vy) * 0.5; if (to.state === 'down') b.state = 'loose'; }
       return;
@@ -853,7 +879,7 @@
     if (screen !== 'play' || paused) return;
 
     const hIt = readInput();
-    for (const p of players) applyIntent(p, p.human && p !== match.inbounder ? hIt : aiIntent(p, dt), dt);
+    for (const p of players) applyIntent(p, p.human && !inInb(p) ? hIt : aiIntent(p, dt), dt);
     for (const p of players) updatePlayer(p, dt);
     separate();
     for (const p of players) p.pose = PUP.blend(p.pose, poseFor(p), p.state === 'run' && hyp(p.vx, p.vz) > 2 ? 0.5 : 0.3);
@@ -880,7 +906,7 @@
     } else if (match.phase === 'dead') {
       match.phaseT -= dt;
       if (match.clock <= 0 && match.buzzer) { match.phase = 'over'; match.phaseT = 1.4; }
-      else updateInbound();
+      else updateInbound(dt);
     } else if (match.phase === 'over') {
       match.phaseT -= dt;
       if (match.phaseT <= 0) endQuarter();
@@ -1009,6 +1035,12 @@
     }
     if (p.stealT > 0) return P.steal();
     const hasBall = ball.holder === p;
+    if (hasBall && match.phase === 'dead') {
+      // carrying the dead ball out of bounds with both hands
+      const pz = hyp(p.vx, p.vz) > 2 ? P.run(p.anim, true, false) : P.stand(time);
+      pz.armF = [1.25, 0.55]; pz.armB = [1.1, 0.65];
+      return pz;
+    }
     const sp = hyp(p.vx, p.vz);
     if (sp > 2) return P.run(p.anim, p.usingTurbo, hasBall);
     if (hasBall) return P.dribbleStand(ball.dribPhase);
