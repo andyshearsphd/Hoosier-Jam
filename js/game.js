@@ -29,10 +29,15 @@
   let floor = null, stands = null;
   const STAND_H = Math.round(FY0 - 4 * SL);
   function buildArena() { floor = ARENA.buildFloor(); stands = ARENA.buildStands(sAt(-4), STAND_H, TEAMS[0], TEAMS[1]); }
-  const looks = TEAMS.map(t => t.players.map(p => ({
-    jersey: t.jersey, trim: t.trim, shorts: t.shorts, numColor: t.numColor, num: p.num,
-    skin: p.skin, hair: p.hair, hairColor: p.hairColor, stache: p.stache, headband: p.headband
-  })));
+  const lookFor = (t, p) => ({ jersey: t.jersey, trim: t.trim, shorts: t.shorts, numColor: t.numColor, num: p.num,
+    skin: p.skin, hair: p.hair, hairColor: p.hairColor, stache: p.stache, headband: p.headband });
+  let looks = TEAMS.map(t => t.players.map(p => lookFor(t, p)));
+  // your school wears home whites (TEAMS[0]); the CPU wears its road colors (TEAMS[1]); the crowd takes both sides' colors
+  function setMatchup(mine, opp) {
+    TEAMS[0] = makeTeam(SCHOOLS[mine], true); TEAMS[1] = makeTeam(SCHOOLS[opp], false);
+    looks = TEAMS.map(t => t.players.map(p => lookFor(t, p)));
+    if (floor) stands = ARENA.buildStands(sAt(-4), STAND_H, TEAMS[0], TEAMS[1]);
+  }
 
   // ---------- state ----------
   let screen = 'title';     // title, team, pick, play, qend, final
@@ -317,12 +322,26 @@
   // NBA Jam style inbound after a basket (automatic): the nearest player on the other team grabs the ball,
   // carries it out past the baseline, pauses a half beat, and passes in to his teammate standing nearby.
   const inInb = p => match.inb && (p === match.inb.who || p === match.inb.recv);
+  // NBA Jam hyper sprint: inbound players who are far from where they need to be fly there
+  function inbSpeed(p) {
+    const I = match.inb;
+    if (!I || match.phase !== 'dead') return 1;
+    let tx, tz;
+    if (p === I.who && I.stage === 'fetch') { tx = ball.x; tz = ball.z; }
+    else if (p === I.who && I.stage === 'carry') { tx = I.spot[0]; tz = I.spot[1]; }
+    else if (p === I.recv) { tx = I.rspot[0]; tz = I.rspot[1]; }
+    else return 1;
+    const dd = hyp(p.x - tx, p.z - tz);
+    return dd > 25 ? 2.4 : dd > 12 ? 1.8 : 1.3;
+  }
   function updateInbound(dt) {
     if (match.phaseT > 0) return;
     let I = match.inb;
     if (!I) {
       const tm = players.filter(p => p.team === match.inboundTeam);
-      const who = tm.reduce((a, b) => (d2(b, ball) < d2(a, ball) ? b : a));
+      const hum = tm.find(p => p.human);
+      // on your team, the CPU teammate always takes it out and passes it in to you
+      const who = hum ? mateOf(hum) : tm.reduce((a, b) => (d2(b, ball) < d2(a, ball) ? b : a));
       const recv = mateOf(who);
       const base = match.scoredRim < MID ? 0 : CL, inward = match.scoredRim < MID ? 1 : -1, side = Math.random() < 0.5 ? -1 : 1;
       I = match.inb = { stage: 'fetch', who, recv, inward, t: 0, pt: 0,
@@ -512,7 +531,7 @@
         else if (I.stage === 'carry') { moveTo(it, p, I.spot[0], I.spot[1], 0.6); it.turbo = true; }
         return it;
       }
-      if (I && p === I.recv) { moveTo(it, p, I.rspot[0], I.rspot[1], 1.2); it.turbo = hyp(p.x - I.rspot[0], p.z - I.rspot[1]) > 6; return it; }
+      if (I && p === I.recv) { moveTo(it, p, I.rspot[0], I.rspot[1], 1.2); it.turbo = hyp(p.x - I.rspot[0], p.z - I.rspot[1]) > 3; return it; }
       const inb = match.inboundTeam === p.team;
       const tx = inb ? MID - match.dir[p.team] * 4 : defRim(p.team) + (defRim(p.team) < MID ? 12 : -12);
       moveTo(it, p, tx, RIM_Z + (p.slot ? 9 : -9));
@@ -661,7 +680,7 @@
     if (p.fire) p.turbo = 100;
 
     if (onGround(p) && p.stun <= 0) {
-      const sp = speedOf(p) * (p.usingTurbo ? 1.4 : 1) * (ball.holder === p ? 0.96 : 1) * (match.inb && p === match.inb.who && match.inb.stage !== 'pause' ? 1.3 : 1);
+      const sp = speedOf(p) * (p.usingTurbo ? 1.4 : 1) * (ball.holder === p ? 0.96 : 1) * inbSpeed(p);
       const pivot = ball.holder === p && (p.gather != null || p.fakeT > 0);
       const tx = pivot ? 0 : it.mx * sp, tz = pivot ? 0 : it.mz * sp * 0.85;
       const k = Math.min(1, dt * 18);
@@ -1255,26 +1274,56 @@
     button(W - 86, 6, 80, 20, SFX.isMuted() ? 'SOUND OFF' : 'SOUND ON', () => SFX.setMuted(!SFX.isMuted()), { color: '#333', size: 10 });
   }
 
+  // ---------- school picker: choose your school, then your opponent ----------
+  const teamSel = { mine: null, opp: null };
+  function schoolTile(i, x, y, w, h, tag) {
+    const S_ = SCHOOLS[i];
+    const sel = tag != null;
+    ctx.fillStyle = sel ? (tag === 'YOU' ? '#ffd23c' : '#ff5a4a') : '#100818'; ctx.fillRect(x - 3, y - 3, w + 6, h + 6);
+    const bg = ctx.createLinearGradient(0, y, 0, y + h);
+    bg.addColorStop(0, PUP.shade(S_.road.jersey, 0.15)); bg.addColorStop(1, PUP.shade(S_.road.jersey, -0.55));
+    ctx.fillStyle = bg; ctx.fillRect(x, y, w, h);
+    S_.colors.forEach((c, k) => { ctx.fillStyle = c; ctx.fillRect(x + 6 + k * 14, y + h - 12, 12, 6); });
+    ctx.fillStyle = S_.road.trim; ctx.fillRect(x, y, w, 3);
+    TXT.draw(ctx, S_.city, x + w / 2, y + 7, { size: 15, align: 'center', fill: 'white', strokeW: 2.5 });
+    TXT.draw(ctx, S_.mascot, x + w / 2, y + 27, { size: 10, align: 'center', fill: S_.road.trim === '#ffffff' || S_.road.trim === '#151515' ? '#e8e8f0' : S_.road.trim, shadow: false, strokeW: 2 });
+    // team strength: 1 to 5 stars from the average rating
+    const stars = Math.round((teamRating(S_) - 4.6) / 0.35);
+    for (let k = 0; k < 5; k++) TXT.draw(ctx, '★', x + w - 52 + k * 9.5, y + h - 16, { size: 9, fill: k < clamp(stars, 1, 5) ? 'gold' : '#4a4060', shadow: false, strokeW: 1.5, italic: false });
+    if (sel) {
+      ctx.fillStyle = tag === 'YOU' ? '#d8342c' : '#2a2a33'; const tw = TXT.width(ctx, tag, 10) + 10;
+      ctx.fillRect(x + w - tw - 2, y + 4, tw, 14); TXT.draw(ctx, tag, x + w - tw + 3, y + 5, { size: 10, fill: 'white', shadow: false, strokeW: 1.5 });
+    }
+  }
   function renderTeam() {
-    drawWorld(); dim(0.7);
-    TXT.draw(ctx, 'CHOOSE YOUR TEAM', W / 2, 8, { size: 28, align: 'center', fill: 'gold' });
-    const cw = Math.min(280, W / 2 - 24);
-    TEAMS.forEach((T, i) => {
-      const x = i === 0 ? W / 2 - cw - 10 : W / 2 + 10, y = 48, h = 222;
-      ctx.fillStyle = '#100818'; ctx.fillRect(x - 3, y - 3, cw + 6, h + 6);
-      const bg = ctx.createLinearGradient(0, y, 0, y + h); bg.addColorStop(0, T.primary); bg.addColorStop(1, PUP.shade(T.primary, -0.65));
-      ctx.fillStyle = bg; ctx.fillRect(x, y, cw, h);
-      ctx.fillStyle = T.secondary; ctx.fillRect(x, y + 38, cw, 3);
-      TXT.draw(ctx, T.full, x + cw / 2, y + 6, { size: 24, align: 'center', fill: 'white' });
-      T.players.forEach((pd, j) => {
-        const px = x + cw / 2 + (j - 1) * (cw / 3.2);
-        drawFigure(looks[i][j], PUP.P.stand(), px, y + 170, 11.5 * pd.h / 6.5, i === 0 ? 1 : -1);
-        TXT.draw(ctx, pd.name, px, y + 176, { size: 11, align: 'center', fill: 'white', shadow: false, strokeW: 2 });
-      });
-      TXT.draw(ctx, 'TAP TO PICK', x + cw / 2, y + h - 22, { size: 13, align: 'center', fill: 'gold' });
-      ui.push({ x, y, w: cw, h, onTap: () => { match.human = i; pickSel = []; match.pickMode = 'pre'; screen = 'pick'; } });
+    drawWorld(); dim(0.74);
+    const step = teamSel.mine == null ? 1 : 2;
+    TXT.draw(ctx, step === 1 ? 'CHOOSE YOUR SCHOOL' : 'CHOOSE YOUR OPPONENT', W / 2, 4, { size: 24, align: 'center', fill: 'gold' });
+    TXT.draw(ctx, step === 1 ? 'YOU WEAR THE HOME WHITES' : 'THE CPU WEARS ITS ROAD COLORS', W / 2, 32, { size: 10, align: 'center', fill: 'white', shadow: false, strokeW: 2 });
+    const cols = 5, gap = 8, tw = Math.min(120, (W - 24 - gap * (cols - 1)) / cols), th = 74;
+    const x0 = (W - (tw * cols + gap * (cols - 1))) / 2, y0 = 50;
+    SCHOOLS.forEach((S_, i) => {
+      const x = x0 + (i % cols) * (tw + gap), y = y0 + Math.floor(i / cols) * (th + gap + 2);
+      const tag = teamSel.mine === i && teamSel.opp === i ? 'BOTH' : teamSel.mine === i ? 'YOU' : teamSel.opp === i ? 'CPU' : null;
+      schoolTile(i, x, y, tw, th, tag);
+      ui.push({ x, y, w: tw, h: th, onTap: () => { if (step === 1) teamSel.mine = i; else teamSel.opp = i; } });
     });
-    button(8, 8, 56, 22, 'BACK', () => { screen = 'title'; }, { color: '#333', size: 11 });
+    // matchup bar
+    const by = y0 + 2 * (th + gap + 2) + 4;
+    if (teamSel.mine != null) {
+      const m = SCHOOLS[teamSel.mine], o = teamSel.opp != null ? SCHOOLS[teamSel.opp] : null;
+      TXT.draw(ctx, m.city + ' ' + m.mascot + '  VS  ' + (o ? o.city + ' ' + o.mascot : '?'), W / 2, by, { size: 16, align: 'center', fill: 'white' });
+      if (o) TXT.draw(ctx, o.blurb, W / 2, by + 21, { size: 10, align: 'center', fill: '#c9b3ff', shadow: false, strokeW: 2 });
+    } else TXT.draw(ctx, 'TAP A SCHOOL', W / 2, by + 4, { size: 14, align: 'center', fill: '#c9b3ff' });
+    const ready = teamSel.mine != null && teamSel.opp != null;
+    button(W - 150, H - 36, 140, 28, 'NEXT: PLAYERS', () => {
+      setMatchup(teamSel.mine, teamSel.opp);
+      match.human = 0; pickSel = []; match.pickMode = 'pre'; screen = 'pick';
+    }, { enabled: ready, color: '#d8342c', size: 13 });
+    button(10, H - 36, 70, 28, 'BACK', () => {
+      if (teamSel.opp != null) teamSel.opp = null; else if (teamSel.mine != null) teamSel.mine = null; else screen = 'title';
+    }, { color: '#333', size: 12 });
+    if (step === 2) button(90, H - 36, 96, 28, 'RANDOM', () => { teamSel.opp = Math.floor(Math.random() * SCHOOLS.length); }, { color: '#5b2d8e', size: 12 });
   }
 
   const RLAB = [['spd', 'SPEED'], ['sht', '2 PT'], ['thr', '3 PT'], ['dnk', 'DUNKS'], ['blk', 'BLOCKS'], ['stl', 'STEALS']];
@@ -1453,9 +1502,11 @@
     render();
     requestAnimationFrame(frame);
   }
-  TXT.ready.then(() => { buildArena(); last = performance.now(); requestAnimationFrame(frame); });
+  TXT.ready.then(() => { buildArena(); stands = ARENA.buildStands(sAt(-4), STAND_H, TEAMS[0], TEAMS[1]); last = performance.now(); requestAnimationFrame(frame); });
   document.addEventListener('visibilitychange', () => { if (document.hidden && screen === 'play') paused = true; });
 
-  if (AUTO) { match.human = 0; match.picks = [[0, 1], [1, 2]]; startGame(); elControls.classList.add('on'); elPause.classList.add('on'); }
-  window.HJ = { match, ball, get players() { return players; }, get screen() { return screen; }, set screen(v) { screen = v; }, startQuarter, setupPlayers, startGame, get paused() { return paused; }, set paused(v) { paused = v; } };
+  if (AUTO) {
+    const a2 = Math.floor(Math.random() * SCHOOLS.length); let b2 = Math.floor(Math.random() * SCHOOLS.length);
+    setMatchup(a2, b2); match.human = 0; match.picks = [[0, 1], [1, 2]]; startGame(); elControls.classList.add('on'); elPause.classList.add('on'); }
+  window.HJ = { setMatchup, match, ball, get players() { return players; }, get screen() { return screen; }, set screen(v) { screen = v; }, startQuarter, setupPlayers, startGame, get paused() { return paused; }, set paused(v) { paused = v; } };
 })();

@@ -1,6 +1,6 @@
 # Hoosier Jam
 
-> **Work in progress.** Hoosier Jam is still being built. The teams on the court right now are placeholders, and the controls, art and balance are still changing.
+> **Work in progress.** Hoosier Jam is still being built. The ten Delaware County schools are in, but their players are fictional placeholders for now, and the controls, art and balance are still changing.
 
 A two-on-two arcade basketball game for your phone, styled after 1993 arcade NBA Jam and set at the height of Hoosier Hysteria. Every game tips off at the Muncie Sectional in the Muncie Fieldhouse, with big dunks, a red-hot shooter or two, and a crowd that comes unglued.
 
@@ -10,7 +10,9 @@ A two-on-two arcade basketball game for your phone, styled after 1993 arcade NBA
 
 ## How it works
 
-- Pick a team, then pick two of its three players. Your first pick is you, and your second pick is your CPU teammate. You can sub at halftime.
+- Choose your school, then your opponent. You wear the home whites and the CPU wears its road colors, and the crowd fills in with both schools' colors.
+- Pick two of your school's three players. Your first pick is you, and your second pick is your CPU teammate. You can sub at halftime.
+- After every basket, the ball gets inbounded NBA Jam style. On your team, your CPU teammate takes it out and passes it in to you.
 - Four 3-minute quarters on a high school length court, a 24-second shot clock, and overtime if it's tied.
 - Hold SHOOT to rise and let go at the top of your jump for your best shot. Let go too early or too late and it probably won't fall.
 - Tap SHOOT for a pump fake. You stay on the floor, and a defender who bites leaves his feet, giving you a clean look. The CPU will pump fake you too, so don't leave your feet too early.
@@ -36,6 +38,23 @@ A two-on-two arcade basketball game for your phone, styled after 1993 arcade NBA
 
 **Full screen on iPhone:** Safari won't hide its address bar on a regular web page. Open the game in Safari, tap Share, then Add to Home Screen, and launch Hoosier Jam from your home screen. It opens full screen with no browser bar.
 
+## The schools
+
+Round one has ten Delaware County schools, with their colors and a star rating for team strength:
+
+| School | Colors |
+|---|---|
+| Central Bearcats | Purple and white |
+| South Rebels | Red and white |
+| North Titans | Red, white and blue |
+| Burris Owls | Blue and gold |
+| Yorktown Tigers | Green and white |
+| Delta Eagles | Blue and gold |
+| Daleville Broncos | Brown, black and white |
+| Wapahani Raiders | Red, black and white |
+| Cowan Blackhawks | Black and gold |
+| Wes-Del Warriors | Black, red and white |
+
 ## Features
 
 - The Muncie Fieldhouse: maple floor with MUNCIE CENTRAL BEARCATS on the sideline and a Bearcat at center court, steep bleachers on every side, purple banners, steel trusses and a live hanging scoreboard
@@ -56,16 +75,19 @@ A two-on-two arcade basketball game for your phone, styled after 1993 arcade NBA
 | Working the ball at center court | Battling in the paint |
 | ![Going up for a dunk](screenshots/dunk.png) | ![A blocked dunk](screenshots/block.png) |
 | Going up for the dunk | Denied at the rim |
-| ![Choosing a team](screenshots/teams.png) | ![Halftime box score](screenshots/boxscore.png) |
-| Choose your team | Halftime box score |
+| ![Choosing a school](screenshots/teams.png) | ![Cowan vs Wes-Del](screenshots/matchup.png) |
+| Choose your school and opponent | Cowan in home whites against Wes-Del |
+| ![Halftime box score](screenshots/boxscore.png) | |
+| Halftime box score | |
 
 ## Coming next
 
-- Delaware County schools and their three best players all-time
+- Real all-time players for each school, in place of the placeholders
+- Round two schools: Gaston, Eaton, Albany, Selma, Royerton and more
 - A full sectional bracket
 
 ## Notes
 
 No libraries and no build step. All graphics and sound are generated in code, and the only outside file is the Anton font (SIL Open Font License, in `fonts/`).
 
-The Red Bulldogs and Blue Eagles and their players are fictional placeholders. The Bearcat at center court is an original drawing, not the school's logo. This is a fan-made tribute and is not affiliated with the NBA, Midway, Muncie Central or the IHSAA.
+The players are fictional placeholders, not real people. The Bearcat at center court is an original drawing, not the school's logo. This is a fan-made tribute and is not affiliated with the NBA, Midway, Muncie Central or the IHSAA.
