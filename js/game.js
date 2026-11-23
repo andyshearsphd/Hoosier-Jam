@@ -234,7 +234,9 @@
     let contest = 0;
     for (const o of oppsOf(p)) {
       const dd = d2(o, p);
-      if (dd < 5.5 && o.state !== 'down') contest = Math.max(contest, (5.5 - dd) / 5.5 * (o.y > 0.6 ? 1 : 0.6) * (0.7 + o.r.blk * 0.04));
+      // a defender who just bit on a pump fake can barely contest the shot
+      const faked = o.bitAt && time - o.bitAt < 1.6 ? 0.25 : 1;
+      if (dd < 5.5 && o.state !== 'down') contest = Math.max(contest, (5.5 - dd) / 5.5 * (o.y > 0.6 ? 1 : 0.6) * (0.7 + o.r.blk * 0.04) * faked);
     }
     prob -= contest * 0.3;
     prob *= shotMod(p.team);
@@ -285,6 +287,9 @@
   }
   function jump(p) {
     if (!onGround(p) || p.jumpCd > 0) return;
+    const h = ball.holder;
+    if (h && h.team !== p.team && h.fakeT > 0 && d2(h, p) < 7) p.bitAt = time;
+    if (p.human && h && h.team !== p.team && h.fakeT > 0 && d2(h, p) < 7) callout(pick(['FAKED HIM OUT!', 'BIT ON THE FAKE!', 'UP FAKE!']), 'red');
     p.state = 'air'; p.t = 0; p.vy = 17 + p.r.blk * 0.45; p.jumpCd = 0.45;
   }
 
@@ -528,13 +533,20 @@
 
     if (holder !== p) A.hadBall = false;
     if (holder === p) {
-      if (!A.hadBall) { A.hadBall = true; A.plan = Math.random() < p.r.thr * 0.05 ? 'pull' : 'drive'; A.pullAng = rnd(-1.1, 1.1); }
+      if (!A.hadBall) { A.hadBall = true; A.fakes = 0; A.plan = Math.random() < p.r.thr * 0.05 ? 'pull' : 'drive'; A.pullAng = rnd(-1.1, 1.1); }
       if (p.inboundT > 0) { moveTo(it, p, p.x + dirT * 5, p.z); return it; }
       const d = hyp(p.x - aRim, p.z - RIM_Z);
       const open = openness(p);
       if (A.forceShoot) { A.forceShoot = false; it.shootPress = true; it.turbo = d <= dunkRange(p) && p.turbo > 10; return it; }
       if (A.wantPass && mate) { A.wantPass = false; it.passPress = true; return it; }
+      // a defender bit on the pump fake: shoot over him
+      if (p.fakeT <= 0.05 && d < 24 && opps.some(o => o.state === 'air' && d2(o, p) < 7 && o.vy < 6)) { it.shootPress = true; return it; }
       if (deciding) {
+        // pump fake a close defender now and then (more often against the human)
+        if ((A.fakes || 0) < 2 && p.fakeT <= 0 && d > 9 && d < 23) {
+          const near = opps.find(o => onGround(o) && d2(o, p) < 5.5 && (o.x - p.x) * dirT > -1);
+          if (near && Math.random() < (near.human ? 0.16 : 0.07)) { A.fakes = (A.fakes || 0) + 1; it.fake = true; return it; }
+        }
         const mOpen = mate ? openness(mate) : 0;
         const blockerAhead = opps.some(o => o.state !== 'down' && (o.x - p.x) * dirT > -0.5 && d2(o, p) < 5 && hyp(o.x - aRim, o.z - RIM_Z) < d + 1);
         if (match.shot < 2.5 && d < 30) { it.shootPress = true; it.turbo = d <= dunkRange(p); return it; }
@@ -664,7 +676,8 @@
     const holder = ball.holder;
     if (holder === p) {
       if (onGround(p) && p.inboundT <= 0) {
-        if (it.passPress && p.gather == null) { passBall(p, mateOf(p)); p.fakeT = 0; }
+        if (it.fake && p.gather == null && p.fakeT <= 0) pumpFake(p);
+        else if (it.passPress && p.gather == null) { passBall(p, mateOf(p)); p.fakeT = 0; }
         else if (it.shootPress && p.gather == null && p.fakeT < 0.15) {
           const d = hyp(p.x - attackRim(p.team), p.z - RIM_Z);
           const dunkable = (it.turbo || p.fire) && d <= dunkRange(p) && (p.turbo > 5 || p.fire);
